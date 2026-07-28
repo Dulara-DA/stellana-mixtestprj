@@ -1,0 +1,32 @@
+debug: false
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:stellana_test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    open-in-view: false
+    show-sql: false
+    hibernate:
+      ddl-auto: create-drop
+  sql:
+    init:
+      mode: never
+app:
+  cors:
+    allowed-origin-patterns: "http://localhost:[*],http://127.0.0.1:[*],http://*:[5173]"
+  jwt:
+    secret: "stellana-test-jwt-secret-that-is-long-enough-for-hmac-signing"
+    expiration-minutes: 60
+  frontend-url: http://localhost:5173
+  traceability-base-url: http://localhost:5173/trace
+  production:
+    mixer-capacity-kg: 240
+    fill-factor: 0.7
+    fill-factor-enabled: false
+logging:
+  level:
+    root: INFO
+    org.hibernate.SQL: WARN
