@@ -11,7 +11,9 @@ public final class ApiMapper {
     private ApiMapper() {}
 
     public static UserView user(UserAccount value) {
-        return value == null ? null : new UserView(value.getId(), value.getFullName(), value.getEmail(), value.getRole(), value.isActive());
+        return value == null ? null : new UserView(
+                value.getId(), value.getFullName(), value.getEmployeeId(), value.getEmail(),
+                value.getRole(), value.isActive());
     }
 
     public static RecipeRevisionView recipeRevision(RecipeRevision value) {
@@ -108,5 +110,171 @@ public final class ApiMapper {
         return new AuditView(value.getId(), user(value.getActor()), value.getAction(), value.getEntityType(),
                 value.getEntityId(), value.getPreviousValue(), value.getNewValue(), value.getActionTime(),
                 value.getRelatedBatchId(), value.getRelatedRecipeId());
+    }
+
+    public static ApprovedMaterialBatchView approvedMaterialBatch(ApprovedMaterialBatch value) {
+        return new ApprovedMaterialBatchView(
+                value.getId(),
+                value.getMixingBatch() == null ? null : value.getMixingBatch().getId(),
+                value.getLabApproval() == null ? null : value.getLabApproval().getId(),
+                value.getMixingBatchNumber(),
+                value.getMaterialCode(),
+                value.getCompoundName(),
+                value.getLabStatus(),
+                value.getApprovedQuantityKg(),
+                value.getAvailableQuantityKg(),
+                value.getApprovedAt(),
+                value.getNotes(),
+                value.isActive());
+    }
+
+    public static BlankingBatchView blankingBatch(BlankingBatch value) {
+        return new BlankingBatchView(
+                value.getId(),
+                value.getBatchNumber(),
+                value.getApprovedMaterialBatch().getId(),
+                value.getMixingBatchNumber(),
+                value.getMaterialCode(),
+                value.getMaterialConsumedKg(),
+                value.getPlannedProductionQuantity(),
+                value.getProductionQuantity(),
+                value.getRejectedQuantity(),
+                value.getAvailableGoodBlankQuantity(),
+                value.getProductionDate(),
+                value.getShift(),
+                value.getStartTime(),
+                value.getEndTime(),
+                user(value.getOperator()),
+                value.getOperatorEmployeeId(),
+                value.getNotes(),
+                value.getStatus(),
+                value.getCreatedAt(),
+                value.getUpdatedAt());
+    }
+
+    public static BlankingCartView blankingCart(BlankingCart value) {
+        return new BlankingCartView(
+                value.getId(),
+                value.getCartNumber(),
+                value.getBlankingBatch().getId(),
+                value.getBlankingBatch().getBatchNumber(),
+                value.getBlankingBatch().getMixingBatchNumber(),
+                value.getMaterialCode(),
+                value.getQuantity(),
+                value.getRemainingQuantity(),
+                value.getCreatedAt(),
+                user(value.getCreatedBy()),
+                value.getDestinationPress().getId(),
+                value.getDestinationPress().getPressNumber(),
+                value.getDestinationPress().getPressName(),
+                value.getDispatchedAt(),
+                user(value.getDispatchedBy()),
+                value.getStatus(),
+                value.getBlankingNote());
+    }
+
+    public static PressView press(Press value, ProductionShift currentShift, long cartsWaiting,
+                                  int estimatedNextBlankRequirement) {
+        return new PressView(
+                value.getId(),
+                value.getPressNumber(),
+                value.getPressName(),
+                value.getStatus(),
+                currentShift,
+                user(value.getCurrentOperator()),
+                value.getCurrentBlankingBatch() == null ? null : value.getCurrentBlankingBatch().getId(),
+                value.getCurrentBlankingBatch() == null ? null : value.getCurrentBlankingBatch().getBatchNumber(),
+                value.getAvailableBlankQuantity(),
+                value.getGoodTyreQuantity(),
+                value.getRejectedTyreQuantity(),
+                value.getRejectedBlankQuantity(),
+                cartsWaiting,
+                estimatedNextBlankRequirement,
+                value.getLastActivityAt(),
+                value.isActive());
+    }
+
+    public static CartReceiptView cartReceipt(CartReceipt value) {
+        return new CartReceiptView(
+                value.getId(),
+                value.getCart().getId(),
+                value.getCart().getCartNumber(),
+                value.getCart().getBlankingBatch().getBatchNumber(),
+                value.getReceivedQuantity(),
+                value.getProductionDate(),
+                value.getShift(),
+                value.getReceivedAt(),
+                user(value.getReceivingOperator()),
+                value.getReceivingOperatorEmployeeId(),
+                value.getPress().getId(),
+                value.getPress().getPressNumber(),
+                user(value.getSendingOperator()),
+                value.getDispatchTime(),
+                value.getReceiptStatus(),
+                value.getOverrideReason());
+    }
+
+    public static MouldingProductionRecordView mouldingRecord(MouldingProductionRecord value) {
+        return new MouldingProductionRecordView(
+                value.getId(),
+                value.getPress().getId(),
+                value.getPress().getPressNumber(),
+                value.getProductionDate(),
+                value.getShift(),
+                value.getStartTime(),
+                value.getEndTime(),
+                user(value.getOperator()),
+                value.getOperatorEmployeeId(),
+                value.getCart().getId(),
+                value.getCart().getCartNumber(),
+                value.getBlankingBatch().getId(),
+                value.getBlankingBatch().getBatchNumber(),
+                value.getQuantityReceived(),
+                value.getGoodTyreQuantity(),
+                value.getRejectedTyreQuantity(),
+                value.getRejectedTyreWeightPerItemGrams(),
+                value.getTotalRejectedTyreWeightGrams(),
+                value.getRejectedBlankQuantity(),
+                value.getRemainingBlankQuantity(),
+                value.getDowntimeMinutes(),
+                value.getDowntimeReason(),
+                value.getOperatorNote(),
+                value.getStatus(),
+                value.getCreatedAt(),
+                value.getUpdatedAt());
+    }
+
+    public static MaterialShortageRequestView shortageRequest(MaterialShortageRequest value) {
+        List<RequestMessageView> messages = value.getMessages().stream()
+                .sorted(Comparator.comparing(RequestMessage::getCreatedAt))
+                .map(message -> new RequestMessageView(
+                        message.getId(),
+                        user(message.getSender()),
+                        message.getMessage(),
+                        message.getStatusSnapshot(),
+                        message.getCreatedAt()))
+                .toList();
+        return new MaterialShortageRequestView(
+                value.getId(),
+                value.getRequestNumber(),
+                value.getPress().getId(),
+                value.getPress().getPressNumber(),
+                value.getCurrentBlankingBatch() == null ? null : value.getCurrentBlankingBatch().getId(),
+                value.getCurrentBlankingBatch() == null ? null : value.getCurrentBlankingBatch().getBatchNumber(),
+                value.getCurrentAvailableBlankQuantity(),
+                value.getRequestedBlankQuantity(),
+                value.getRequiredMaterialCode(),
+                value.getRequiredAt(),
+                value.getPriority(),
+                user(value.getSender()),
+                value.getSenderEmployeeId(),
+                value.getProductionDate(),
+                value.getSenderShift(),
+                value.getStatus(),
+                value.getLinkedCart() == null ? null : value.getLinkedCart().getId(),
+                value.getLinkedCart() == null ? null : value.getLinkedCart().getCartNumber(),
+                value.getCreatedAt(),
+                value.getUpdatedAt(),
+                messages);
     }
 }

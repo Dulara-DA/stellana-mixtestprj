@@ -37,6 +37,9 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  time-zone: Asia/Colombo
+  demo-data:
+    enabled: ${DEMO_DATA_ENABLED:true}
   cors:
     # Port 5173 is the Vite development server used for laptop/tablet testing.
     # Restrict this to the deployed HTTPS hostname outside development.
@@ -44,12 +47,14 @@ app:
   jwt:
     secret: ${JWT_SECRET:stellana-development-jwt-secret-change-this-before-production-2026}
     expiration-minutes: 480
-  frontend-url: http://localhost:5173
-  traceability-base-url: http://localhost:5173/trace
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  traceability-base-url: ${TRACEABILITY_BASE_URL:http://localhost:5173/trace}
   production:
     mixer-capacity-kg: 240
     fill-factor: 0.7
     fill-factor-enabled: false
+    # TBC with factory management; used only to flag delayed transfers.
+    cart-transfer-delay-minutes: 30
 
 logging:
   level:

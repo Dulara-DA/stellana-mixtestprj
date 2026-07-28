@@ -36,6 +36,7 @@ public class BatchService {
     private final AuditService auditService;
     private final NotificationService notificationService;
     private final RealtimeEventService realtimeEventService;
+    private final ApprovedMaterialService approvedMaterialService;
 
     @Value("${app.production.mixer-capacity-kg:240}")
     private BigDecimal mixerCapacityKg;
@@ -164,6 +165,9 @@ public class BatchService {
                 saved.getId(), saved.getRecipeRevision().getRecipe().getId());
         realtimeEventService.dashboardChanged("BATCH_STATUS_CHANGED", saved.getId(),
                 saved.getBatchNumber() + " changed to " + target);
+        if (target == BatchStatus.RELEASED_TO_BLANKING) {
+            approvedMaterialService.createFromReleasedMixingBatch(saved, actor);
+        }
         return batch(saved);
     }
 
@@ -182,6 +186,9 @@ public class BatchService {
                     previous.name(), target.name(), saved.getId(), saved.getRecipeRevision().getRecipe().getId());
             realtimeEventService.dashboardChanged("BATCH_STATUS_CHANGED", saved.getId(),
                     saved.getBatchNumber() + " changed to " + target);
+            if (target == BatchStatus.RELEASED_TO_BLANKING) {
+                approvedMaterialService.createFromReleasedMixingBatch(saved, actor);
+            }
         }
         return saved;
     }

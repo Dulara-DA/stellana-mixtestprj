@@ -54,7 +54,7 @@ export function DashboardPage() {
     if (!token) return () => window.clearInterval(ticker)
 
     const client = new Client({
-      webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+      webSocketFactory: () => new SockJS('/ws'),
       connectHeaders: { Authorization: `Bearer ${token}` },
       reconnectDelay: 5000,
       onConnect: () => {
@@ -112,7 +112,7 @@ export function DashboardPage() {
 
       {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-      <div className="mb-7 grid grid-cols-6 gap-4">
+      <div className="mb-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {kpis.map(({ label, value, icon: Icon, tone }) => (
           <div key={label} className="card p-4">
             <div className={`mb-4 grid h-10 w-10 place-items-center rounded-xl ${iconTones[tone]}`}>
@@ -219,7 +219,7 @@ export function DashboardPage() {
           <h2 className="text-lg font-black text-ink">Recent activity</h2>
           <p className="mt-1 text-xs text-slate-500">Latest audited production events</p>
         </div>
-        <div className="grid grid-cols-3 divide-x divide-y divide-slate-100">
+        <div className="grid divide-x divide-y divide-slate-100 md:grid-cols-2 xl:grid-cols-3">
           {summary.recentActivity.map((item) => (
             <div key={item.id} className="flex gap-3 px-5 py-4">
               <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500">

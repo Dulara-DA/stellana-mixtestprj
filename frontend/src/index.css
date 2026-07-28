@@ -16,7 +16,7 @@
 
 body {
   margin: 0;
-  min-width: 1180px;
+  min-width: 320px;
   min-height: 100vh;
   background:
     radial-gradient(circle at 85% 0%, rgba(38, 133, 255, 0.08), transparent 30rem),
@@ -65,11 +65,11 @@ textarea:focus-visible {
   }
 
   .table-shell {
-    @apply overflow-hidden rounded-2xl border border-slate-200 bg-white;
+    @apply overflow-x-auto rounded-2xl border border-slate-200 bg-white;
   }
 
   .table-shell table {
-    @apply w-full border-collapse;
+    @apply min-w-[720px] w-full border-collapse;
   }
 
   .table-shell th {
@@ -79,5 +79,16 @@ textarea:focus-visible {
   .table-shell td {
     @apply border-b border-slate-100 px-4 py-3.5 text-sm text-slate-700;
   }
-}
 
+  .production-table {
+    @apply min-w-[720px] w-full border-collapse;
+  }
+
+  .production-table th {
+    @apply border-b border-slate-200 bg-slate-50 px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500;
+  }
+
+  .production-table td {
+    @apply border-b border-slate-100 px-4 py-3.5 text-sm text-slate-700;
+  }
+}

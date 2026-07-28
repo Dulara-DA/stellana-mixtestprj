@@ -20,10 +20,18 @@ public final class ApiModels {
 
     public record AuthResponse(String token, UserView user) {}
 
-    public record UserView(Long id, String fullName, String email, Role role, boolean active) {}
+    public record UserView(
+            Long id,
+            String fullName,
+            String employeeId,
+            String email,
+            Role role,
+            boolean active
+    ) {}
 
     public record CreateUserRequest(
             @NotBlank String fullName,
+            @NotBlank String employeeId,
             @NotBlank @Email String email,
             @Size(min = 8) String password,
             @NotNull Role role
@@ -384,6 +392,285 @@ public final class ApiModels {
             List<BatchView> activeBatchDetails,
             List<BatchView> batchBoard,
             List<AuditView> recentActivity
+    ) {}
+
+    public record ShiftContextView(
+            LocalDate productionDate,
+            ProductionShift shift,
+            LocalDateTime serverTime,
+            LocalDateTime shiftStart,
+            LocalDateTime shiftEnd
+    ) {}
+
+    public record ApprovedMaterialBatchView(
+            Long id,
+            Long mixingBatchId,
+            Long labApprovalId,
+            String mixingBatchNumber,
+            String materialCode,
+            String compoundName,
+            LabDecision labStatus,
+            BigDecimal approvedQuantityKg,
+            BigDecimal availableQuantityKg,
+            LocalDateTime approvedAt,
+            String notes,
+            boolean active
+    ) {}
+
+    public record CreateBlankingBatchRequest(
+            @NotBlank String batchNumber,
+            @NotNull Long approvedMaterialBatchId,
+            @NotNull @DecimalMin("0.001") BigDecimal materialConsumedKg,
+            @NotNull @Min(1) Integer plannedProductionQuantity,
+            String notes,
+            Boolean startImmediately
+    ) {}
+
+    public record CompleteBlankingBatchRequest(
+            @NotNull @Min(1) Integer productionQuantity,
+            @NotNull @Min(0) Integer rejectedQuantity,
+            String notes
+    ) {}
+
+    public record BlankingBatchView(
+            Long id,
+            String batchNumber,
+            Long approvedMaterialBatchId,
+            String mixingBatchNumber,
+            String materialCode,
+            BigDecimal materialConsumedKg,
+            Integer plannedProductionQuantity,
+            Integer productionQuantity,
+            Integer rejectedQuantity,
+            Integer availableGoodBlankQuantity,
+            LocalDate productionDate,
+            ProductionShift shift,
+            LocalDateTime startTime,
+            LocalDateTime endTime,
+            UserView operator,
+            String operatorEmployeeId,
+            String notes,
+            BlankingBatchStatus status,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt
+    ) {}
+
+    public record CreateBlankingCartRequest(
+            @NotBlank String cartNumber,
+            @NotNull Long blankingBatchId,
+            @NotNull @Min(1) Integer quantity,
+            @NotNull Long destinationPressId,
+            String blankingNote,
+            Long shortageRequestId
+    ) {}
+
+    public record DispatchCartRequest(String note) {}
+
+    public record BlankingCartView(
+            Long id,
+            String cartNumber,
+            Long blankingBatchId,
+            String blankingBatchNumber,
+            String mixingBatchNumber,
+            String materialCode,
+            Integer quantity,
+            Integer remainingQuantity,
+            LocalDateTime createdAt,
+            UserView createdBy,
+            Long destinationPressId,
+            String destinationPressNumber,
+            String destinationPressName,
+            LocalDateTime dispatchedAt,
+            UserView dispatchedBy,
+            BlankingCartStatus status,
+            String blankingNote
+    ) {}
+
+    public record PressView(
+            Long id,
+            String pressNumber,
+            String pressName,
+            PressStatus status,
+            ProductionShift currentShift,
+            UserView currentOperator,
+            Long currentBlankingBatchId,
+            String currentBlankingBatchNumber,
+            Integer availableBlankQuantity,
+            Integer goodTyreQuantity,
+            Integer rejectedTyreQuantity,
+            Integer rejectedBlankQuantity,
+            long cartsWaitingToBeReceived,
+            Integer estimatedNextBlankRequirement,
+            LocalDateTime lastActivityAt,
+            boolean active
+    ) {}
+
+    public record PressStatusRequest(
+            @NotNull PressStatus status,
+            String reason
+    ) {}
+
+    public record ReceiveCartRequest(
+            @NotNull Long pressId,
+            Boolean supervisorOverride,
+            String overrideReason
+    ) {}
+
+    public record CartReceiptView(
+            Long id,
+            Long cartId,
+            String cartNumber,
+            String blankingBatchNumber,
+            Integer receivedQuantity,
+            LocalDate productionDate,
+            ProductionShift shift,
+            LocalDateTime receivedAt,
+            UserView receivingOperator,
+            String receivingOperatorEmployeeId,
+            Long pressId,
+            String pressNumber,
+            UserView sendingOperator,
+            LocalDateTime dispatchTime,
+            CartReceiptStatus receiptStatus,
+            String overrideReason
+    ) {}
+
+    public record StartMouldingRecordRequest(
+            @NotNull Long pressId,
+            @NotNull Long cartId
+    ) {}
+
+    public record CompleteMouldingRecordRequest(
+            @NotNull @Min(0) Integer goodTyreQuantity,
+            @NotNull @Min(0) Integer rejectedTyreQuantity,
+            @NotNull @DecimalMin("0.000") BigDecimal rejectedTyreWeightPerItemGrams,
+            @NotNull @Min(0) Integer rejectedBlankQuantity,
+            @NotNull @Min(0) Integer downtimeMinutes,
+            String downtimeReason,
+            String operatorNote
+    ) {}
+
+    public record CorrectMouldingRecordRequest(
+            @NotNull @Min(0) Integer goodTyreQuantity,
+            @NotNull @Min(0) Integer rejectedTyreQuantity,
+            @NotNull @DecimalMin("0.000") BigDecimal rejectedTyreWeightPerItemGrams,
+            @NotNull @Min(0) Integer rejectedBlankQuantity,
+            @NotNull @Min(0) Integer downtimeMinutes,
+            String downtimeReason,
+            String operatorNote,
+            @NotBlank String correctionReason
+    ) {}
+
+    public record MouldingProductionRecordView(
+            Long id,
+            Long pressId,
+            String pressNumber,
+            LocalDate productionDate,
+            ProductionShift shift,
+            LocalDateTime startTime,
+            LocalDateTime endTime,
+            UserView operator,
+            String operatorEmployeeId,
+            Long cartId,
+            String cartNumber,
+            Long blankingBatchId,
+            String blankingBatchNumber,
+            Integer quantityReceived,
+            Integer goodTyreQuantity,
+            Integer rejectedTyreQuantity,
+            BigDecimal rejectedTyreWeightPerItemGrams,
+            BigDecimal totalRejectedTyreWeightGrams,
+            Integer rejectedBlankQuantity,
+            Integer remainingBlankQuantity,
+            Integer downtimeMinutes,
+            String downtimeReason,
+            String operatorNote,
+            MouldingRecordStatus status,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt
+    ) {}
+
+    public record CreateShortageRequest(
+            @NotNull Long pressId,
+            Long currentBlankingBatchId,
+            @NotNull @Min(1) Integer requestedBlankQuantity,
+            @NotBlank String requiredMaterialCode,
+            @NotNull LocalDateTime requiredAt,
+            @NotNull ShortagePriority priority,
+            @NotBlank String message
+    ) {}
+
+    public record ShortageStatusUpdateRequest(
+            @NotNull ShortageStatus status,
+            Long linkedCartId,
+            String response
+    ) {}
+
+    public record ShortageMessageRequest(@NotBlank String message) {}
+
+    public record RequestMessageView(
+            Long id,
+            UserView sender,
+            String message,
+            ShortageStatus statusSnapshot,
+            LocalDateTime sentAt
+    ) {}
+
+    public record MaterialShortageRequestView(
+            Long id,
+            String requestNumber,
+            Long pressId,
+            String pressNumber,
+            Long currentBlankingBatchId,
+            String currentBlankingBatchNumber,
+            Integer currentAvailableBlankQuantity,
+            Integer requestedBlankQuantity,
+            String requiredMaterialCode,
+            LocalDateTime requiredAt,
+            ShortagePriority priority,
+            UserView sender,
+            String senderEmployeeId,
+            LocalDate productionDate,
+            ProductionShift senderShift,
+            ShortageStatus status,
+            Long linkedCartId,
+            String linkedCartNumber,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            List<RequestMessageView> messages
+    ) {}
+
+    public record OperatorProductivityView(
+            UserView operator,
+            String employeeId,
+            long completedRuns,
+            long goodTyres,
+            long rejectedTyres,
+            long rejectedBlanks,
+            long downtimeMinutes
+    ) {}
+
+    public record ProductionManagerSummary(
+            LocalDate fromDate,
+            LocalDate toDate,
+            ProductionShift shift,
+            long blankingBatchesProduced,
+            long blanksProduced,
+            long blanksDispatched,
+            long blanksAvailableAtBlanking,
+            long blanksAvailableAtPresses,
+            long goodTyres,
+            long rejectedTyres,
+            BigDecimal rejectedTyreWeightGrams,
+            long rejectedBlanks,
+            BigDecimal rejectionPercentage,
+            long openShortageRequests,
+            long delayedCartTransfers,
+            long pressesWaitingForBlanks,
+            List<PressView> presses,
+            List<BlankingCartView> cartTransfers,
+            List<OperatorProductivityView> operatorProductivity,
+            List<MouldingProductionRecordView> recentRecords
     ) {}
 
     public record ErrorResponse(

@@ -92,7 +92,7 @@ export function LabPage() {
       {eligible.length > 0 && (
         <section className="card mb-6 p-6">
           <h2 className="text-lg font-black text-ink">Samples ready to send</h2>
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {eligible.map((batch) => (
               <div key={batch.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-4">
                 <div><p className="font-black text-ink">{batch.batchNumber}</p><p className="mt-1 text-xs text-slate-500">{batch.recipeCode} · Rev {batch.revisionNumber}</p></div>
@@ -103,7 +103,7 @@ export function LabPage() {
         </section>
       )}
 
-      <div className="grid grid-cols-[1fr_20rem] gap-6">
+      <div className="grid gap-6 xl:grid-cols-[1fr_20rem]">
         <section>
           {samples.length === 0 ? (
             <EmptyState title="No laboratory samples" message="Complete Stage 2 and send a sample to create the first lab record." />
@@ -119,12 +119,12 @@ export function LabPage() {
                     {canRecord && sample.decision === 'PENDING' && <button className="btn-primary" onClick={() => setSelected(sample)}><Plus size={17} /> Record result</button>}
                   </div>
                   {sample.decision !== 'PENDING' && (
-                    <div className="mt-5 grid grid-cols-4 gap-3 rounded-xl bg-slate-50 p-4 text-sm">
+                    <div className="mt-5 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-4">
                       <div><p className="text-xs text-slate-400">Hardness</p><p className="mt-1 font-black">{sample.hardness ?? '—'}</p></div>
                       <div><p className="text-xs text-slate-400">Resilience</p><p className="mt-1 font-black">{sample.resilience ?? '—'}</p></div>
                       <div><p className="text-xs text-slate-400">Curing time</p><p className="mt-1 font-black">{sample.curingTimeMinutes ? `${sample.curingTimeMinutes} min` : '—'}</p></div>
                       <div><p className="text-xs text-slate-400">Tested by</p><p className="mt-1 font-black">{sample.testedBy?.fullName ?? '—'}</p></div>
-                      {sample.comments && <p className="col-span-4 border-t border-slate-200 pt-3 text-slate-600">{sample.comments}</p>}
+                      {sample.comments && <p className="col-span-2 border-t border-slate-200 pt-3 text-slate-600 sm:col-span-4">{sample.comments}</p>}
                     </div>
                   )}
                 </div>
@@ -154,7 +154,7 @@ export function LabPage() {
               <div><h2 className="text-xl font-black text-ink">Record laboratory result</h2><p className="mt-1 text-sm text-slate-500">{selected.sampleId} · {selected.batchNumber}</p></div>
               <button type="button" onClick={() => setSelected(null)} className="grid h-10 w-10 place-items-center rounded-xl hover:bg-slate-100" aria-label="Close"><X size={19} /></button>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <label><span className="label">Hardness</span><input className="field" type="number" step="0.001" value={form.hardness} onChange={(e) => setForm({ ...form, hardness: e.target.value })} /></label>
               <label><span className="label">Resilience</span><input className="field" type="number" step="0.001" value={form.resilience} onChange={(e) => setForm({ ...form, resilience: e.target.value })} /></label>
               <label><span className="label">Curing time (minutes)</span><input className="field" type="number" step="0.001" value={form.curingTimeMinutes} onChange={(e) => setForm({ ...form, curingTimeMinutes: e.target.value })} /></label>
@@ -163,7 +163,7 @@ export function LabPage() {
               <label><span className="label">Unit</span><input className="field" value={form.additionalUnit} onChange={(e) => setForm({ ...form, additionalUnit: e.target.value })} /></label>
               <label><span className="label">Decision</span><select className="field" value={form.decision} onChange={(e) => setForm({ ...form, decision: e.target.value, reprocessingDecision: e.target.value === 'FAIL' && form.reprocessingDecision })}><option value="PASS">Pass</option><option value="FAIL">Fail</option><option value="HOLD">Hold</option><option value="RETEST">Retest</option></select></label>
               <label className="col-span-2 flex items-end gap-3 rounded-xl border border-slate-200 px-4 py-3"><input type="checkbox" className="h-5 w-5" checked={form.reprocessingDecision} disabled={form.decision !== 'FAIL'} onChange={(e) => setForm({ ...form, reprocessingDecision: e.target.checked })} /><span className="text-sm font-semibold text-slate-700">Approve failed batch for reprocessing</span></label>
-              <label className="col-span-3"><span className="label">Comments</span><textarea className="field min-h-24" value={form.comments} onChange={(e) => setForm({ ...form, comments: e.target.value })} /></label>
+              <label className="sm:col-span-2 lg:col-span-3"><span className="label">Comments</span><textarea className="field min-h-24" value={form.comments} onChange={(e) => setForm({ ...form, comments: e.target.value })} /></label>
             </div>
             <div className="mt-6 flex justify-end gap-3"><button type="button" className="btn-secondary" onClick={() => setSelected(null)}>Cancel</button><button className="btn-primary" type="submit"><FlaskConical size={17} /> Save result and decision</button></div>
           </form>
@@ -172,4 +172,3 @@ export function LabPage() {
     </div>
   )
 }
-

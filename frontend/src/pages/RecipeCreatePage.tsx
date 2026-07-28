@@ -124,13 +124,13 @@ export function RecipeCreatePage() {
         {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
         <section className="card p-7">
           <h2 className="mb-5 text-lg font-black text-ink">Revision identity</h2>
-          <div className="grid grid-cols-3 gap-5">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <label><span className="label">Recipe code</span><input className="field" required value={form.recipeCode} onChange={(e) => setForm({ ...form, recipeCode: e.target.value })} readOnly={Boolean(sourceId)} /></label>
-            <label className="col-span-2"><span className="label">Compound name</span><input className="field" required value={form.compoundName} onChange={(e) => setForm({ ...form, compoundName: e.target.value })} /></label>
+            <label className="sm:col-span-2"><span className="label">Compound name</span><input className="field" required value={form.compoundName} onChange={(e) => setForm({ ...form, compoundName: e.target.value })} /></label>
             <label><span className="label">Revision number</span><input className="field" required value={form.revisionNumber} onChange={(e) => setForm({ ...form, revisionNumber: e.target.value })} placeholder="e.g. 3" /></label>
             <label><span className="label">Effective date</span><input className="field" required type="date" value={form.effectiveDate} onChange={(e) => setForm({ ...form, effectiveDate: e.target.value })} /></label>
             <label><span className="label">Initial status</span><select className="field" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}><option value="DRAFT">Draft</option><option value="ACTIVE">Active (approved for prototype)</option></select></label>
-            <label className="col-span-3"><span className="label">Revision notes</span><textarea className="field min-h-24" value={form.revisionNotes} onChange={(e) => setForm({ ...form, revisionNotes: e.target.value })} placeholder="Describe what changed and why." /></label>
+            <label className="sm:col-span-2 lg:col-span-3"><span className="label">Revision notes</span><textarea className="field min-h-24" value={form.revisionNotes} onChange={(e) => setForm({ ...form, revisionNotes: e.target.value })} placeholder="Describe what changed and why." /></label>
           </div>
         </section>
 
@@ -146,7 +146,7 @@ export function RecipeCreatePage() {
                   <div className="flex items-center gap-3"><span className="grid h-8 w-8 place-items-center rounded-full bg-process text-sm font-black text-white">{index + 1}</span><h3 className="font-black text-ink">Addition {index + 1}</h3></div>
                   {ingredients.length > 1 && <button type="button" className="grid h-9 w-9 place-items-center rounded-xl text-red-600 hover:bg-red-50" onClick={() => setIngredients(ingredients.filter((_, i) => i !== index))} aria-label="Remove ingredient"><Trash2 size={17} /></button>}
                 </div>
-                <div className="grid grid-cols-6 gap-4">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
                   <label><span className="label">Material code</span><input className="field" required value={item.materialCode} onChange={(e) => updateIngredient(index, 'materialCode', e.target.value)} /></label>
                   <label className="col-span-2"><span className="label">Material name</span><input className="field" required value={item.materialName} onChange={(e) => updateIngredient(index, 'materialName', e.target.value)} /></label>
                   <label><span className="label">Required qty</span><input className="field" type="number" min="0.001" step="0.001" required value={item.requiredQuantity} onChange={(e) => updateIngredient(index, 'requiredQuantity', e.target.value)} /></label>
@@ -155,7 +155,7 @@ export function RecipeCreatePage() {
                   <label><span className="label">Time (seconds)</span><input className="field" type="number" min="1" value={item.mixingTimeSeconds} onChange={(e) => updateIngredient(index, 'mixingTimeSeconds', e.target.value)} placeholder="TBC" /></label>
                   <label><span className="label">Temperature °C</span><input className="field" type="number" step="0.1" value={item.temperatureCelsius} onChange={(e) => updateIngredient(index, 'temperatureCelsius', e.target.value)} placeholder="TBC" /></label>
                   <label><span className="label">Speed RPM</span><input className="field" type="number" step="0.1" value={item.speedRpm} onChange={(e) => updateIngredient(index, 'speedRpm', e.target.value)} placeholder="TBC" /></label>
-                  <label className="col-span-3"><span className="label">Instructions</span><input className="field" value={item.instructions} onChange={(e) => updateIngredient(index, 'instructions', e.target.value)} placeholder="Optional verified instruction" /></label>
+                  <label className="sm:col-span-2 lg:col-span-3"><span className="label">Instructions</span><input className="field" value={item.instructions} onChange={(e) => updateIngredient(index, 'instructions', e.target.value)} placeholder="Optional verified instruction" /></label>
                 </div>
               </div>
             ))}

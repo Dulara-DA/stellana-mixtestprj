@@ -33,5 +33,26 @@ public class RealtimeEventService {
                 "eventType", "NOTIFICATIONS_CHANGED",
                 "timestamp", LocalDateTime.now().toString()));
     }
-}
 
+    public void productionChanged(String section, String eventType, Long referenceId, String message) {
+        Map<String, Object> payload = Map.of(
+                "section", section,
+                "eventType", eventType,
+                "referenceId", referenceId == null ? 0 : referenceId,
+                "message", message,
+                "timestamp", LocalDateTime.now().toString());
+        messagingTemplate.convertAndSend("/topic/production", payload);
+        messagingTemplate.convertAndSend("/topic/" + section.toLowerCase(), payload);
+    }
+
+    public void shortagesChanged(String eventType, Long requestId, String message) {
+        Map<String, Object> payload = Map.of(
+                "section", "SHORTAGE",
+                "eventType", eventType,
+                "referenceId", requestId == null ? 0 : requestId,
+                "message", message,
+                "timestamp", LocalDateTime.now().toString());
+        messagingTemplate.convertAndSend("/topic/production", payload);
+        messagingTemplate.convertAndSend("/topic/shortages", payload);
+    }
+}

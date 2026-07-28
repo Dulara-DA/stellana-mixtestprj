@@ -5,6 +5,7 @@
 CREATE TABLE user_accounts (
     id BIGSERIAL PRIMARY KEY,
     full_name VARCHAR(255) NOT NULL,
+    employee_id VARCHAR(255) UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(40) NOT NULL,
@@ -243,6 +244,170 @@ CREATE TABLE audit_logs (
     updated_at TIMESTAMP NOT NULL
 );
 
+-- Downstream production extension: Mixing/Lab -> Blanking -> Moulding.
+-- Runtime entities use the same base created_at/updated_at fields.
+
+CREATE TABLE approved_material_batches (
+    id BIGSERIAL PRIMARY KEY,
+    mixing_batch_id BIGINT REFERENCES production_batches(id),
+    lab_approval_id BIGINT REFERENCES lab_samples(id),
+    mixing_batch_number VARCHAR(255) NOT NULL UNIQUE,
+    material_code VARCHAR(255) NOT NULL,
+    compound_name VARCHAR(255) NOT NULL,
+    lab_status VARCHAR(30) NOT NULL,
+    approved_quantity_kg NUMERIC(12,3) NOT NULL CHECK (approved_quantity_kg >= 0),
+    available_quantity_kg NUMERIC(12,3) NOT NULL CHECK (available_quantity_kg >= 0),
+    approved_at TIMESTAMP NOT NULL,
+    notes VARCHAR(1500),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE blanking_batches (
+    id BIGSERIAL PRIMARY KEY,
+    batch_number VARCHAR(255) NOT NULL UNIQUE,
+    approved_material_batch_id BIGINT NOT NULL REFERENCES approved_material_batches(id),
+    mixing_batch_number VARCHAR(255) NOT NULL,
+    material_code VARCHAR(255) NOT NULL,
+    material_consumed_kg NUMERIC(12,3) NOT NULL CHECK (material_consumed_kg > 0),
+    planned_production_quantity INTEGER NOT NULL CHECK (planned_production_quantity > 0),
+    production_quantity INTEGER,
+    rejected_quantity INTEGER NOT NULL DEFAULT 0 CHECK (rejected_quantity >= 0),
+    available_good_blank_quantity INTEGER NOT NULL DEFAULT 0 CHECK (available_good_blank_quantity >= 0),
+    production_date DATE NOT NULL,
+    shift VARCHAR(30) NOT NULL,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    operator_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    operator_employee_id VARCHAR(255) NOT NULL,
+    notes VARCHAR(1500),
+    status VARCHAR(40) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE presses (
+    id BIGSERIAL PRIMARY KEY,
+    press_number VARCHAR(255) NOT NULL UNIQUE,
+    press_name VARCHAR(255) NOT NULL,
+    status VARCHAR(40) NOT NULL,
+    available_blank_quantity INTEGER NOT NULL DEFAULT 0 CHECK (available_blank_quantity >= 0),
+    good_tyre_quantity INTEGER NOT NULL DEFAULT 0 CHECK (good_tyre_quantity >= 0),
+    rejected_tyre_quantity INTEGER NOT NULL DEFAULT 0 CHECK (rejected_tyre_quantity >= 0),
+    rejected_blank_quantity INTEGER NOT NULL DEFAULT 0 CHECK (rejected_blank_quantity >= 0),
+    current_operator_id BIGINT REFERENCES user_accounts(id),
+    current_blanking_batch_id BIGINT REFERENCES blanking_batches(id),
+    last_activity_at TIMESTAMP,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE blanking_carts (
+    id BIGSERIAL PRIMARY KEY,
+    cart_number VARCHAR(255) NOT NULL UNIQUE,
+    blanking_batch_id BIGINT NOT NULL REFERENCES blanking_batches(id),
+    material_code VARCHAR(255) NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    remaining_quantity INTEGER NOT NULL CHECK (remaining_quantity >= 0),
+    created_by_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    destination_press_id BIGINT NOT NULL REFERENCES presses(id),
+    dispatched_at TIMESTAMP,
+    dispatched_by_id BIGINT REFERENCES user_accounts(id),
+    status VARCHAR(40) NOT NULL,
+    blanking_note VARCHAR(1500),
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE cart_transfers (
+    id BIGSERIAL PRIMARY KEY,
+    cart_id BIGINT NOT NULL UNIQUE REFERENCES blanking_carts(id),
+    from_section VARCHAR(30) NOT NULL,
+    destination_press_id BIGINT NOT NULL REFERENCES presses(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    dispatched_by_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    dispatched_at TIMESTAMP NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE cart_receipts (
+    id BIGSERIAL PRIMARY KEY,
+    cart_id BIGINT NOT NULL UNIQUE REFERENCES blanking_carts(id),
+    received_quantity INTEGER NOT NULL CHECK (received_quantity > 0),
+    production_date DATE NOT NULL,
+    shift VARCHAR(30) NOT NULL,
+    received_at TIMESTAMP NOT NULL,
+    receiving_operator_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    receiving_operator_employee_id VARCHAR(255) NOT NULL,
+    press_id BIGINT NOT NULL REFERENCES presses(id),
+    sending_operator_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    dispatch_time TIMESTAMP NOT NULL,
+    receipt_status VARCHAR(40) NOT NULL,
+    override_reason VARCHAR(1000),
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE moulding_production_records (
+    id BIGSERIAL PRIMARY KEY,
+    press_id BIGINT NOT NULL REFERENCES presses(id),
+    production_date DATE NOT NULL,
+    shift VARCHAR(30) NOT NULL,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP,
+    operator_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    operator_employee_id VARCHAR(255) NOT NULL,
+    cart_id BIGINT NOT NULL REFERENCES blanking_carts(id),
+    blanking_batch_id BIGINT NOT NULL REFERENCES blanking_batches(id),
+    quantity_received INTEGER NOT NULL CHECK (quantity_received > 0),
+    good_tyre_quantity INTEGER NOT NULL DEFAULT 0 CHECK (good_tyre_quantity >= 0),
+    rejected_tyre_quantity INTEGER NOT NULL DEFAULT 0 CHECK (rejected_tyre_quantity >= 0),
+    rejected_tyre_weight_per_item_grams NUMERIC(12,3) NOT NULL DEFAULT 0,
+    total_rejected_tyre_weight_grams NUMERIC(14,3) NOT NULL DEFAULT 0,
+    rejected_blank_quantity INTEGER NOT NULL DEFAULT 0 CHECK (rejected_blank_quantity >= 0),
+    remaining_blank_quantity INTEGER NOT NULL CHECK (remaining_blank_quantity >= 0),
+    downtime_minutes INTEGER NOT NULL DEFAULT 0 CHECK (downtime_minutes >= 0),
+    downtime_reason VARCHAR(1000),
+    operator_note VARCHAR(1500),
+    status VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE material_shortage_requests (
+    id BIGSERIAL PRIMARY KEY,
+    request_number VARCHAR(255) NOT NULL UNIQUE,
+    press_id BIGINT NOT NULL REFERENCES presses(id),
+    current_blanking_batch_id BIGINT REFERENCES blanking_batches(id),
+    current_available_blank_quantity INTEGER NOT NULL CHECK (current_available_blank_quantity >= 0),
+    requested_blank_quantity INTEGER NOT NULL CHECK (requested_blank_quantity > 0),
+    required_material_code VARCHAR(255) NOT NULL,
+    required_at TIMESTAMP NOT NULL,
+    priority VARCHAR(20) NOT NULL,
+    sender_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    sender_employee_id VARCHAR(255) NOT NULL,
+    production_date DATE NOT NULL,
+    sender_shift VARCHAR(30) NOT NULL,
+    status VARCHAR(30) NOT NULL,
+    linked_cart_id BIGINT REFERENCES blanking_carts(id),
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE shortage_request_messages (
+    id BIGSERIAL PRIMARY KEY,
+    request_id BIGINT NOT NULL REFERENCES material_shortage_requests(id),
+    sender_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    message VARCHAR(2000) NOT NULL,
+    status_snapshot VARCHAR(30) NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
 CREATE INDEX idx_batches_status ON production_batches(status);
 CREATE INDEX idx_batches_officer ON production_batches(assigned_officer_id);
 CREATE INDEX idx_history_batch_time ON batch_status_history(batch_id, changed_at);
@@ -251,3 +416,13 @@ CREATE INDEX idx_lab_samples_batch ON lab_samples(batch_id);
 CREATE INDEX idx_issues_status_priority ON issue_threads(status, priority);
 CREATE INDEX idx_notifications_recipient_read ON notifications(recipient_id, read_flag);
 CREATE INDEX idx_audit_action_time ON audit_logs(action_time);
+CREATE INDEX idx_approved_material_mixing_batch ON approved_material_batches(mixing_batch_number);
+CREATE INDEX idx_approved_material_code ON approved_material_batches(material_code);
+CREATE INDEX idx_blanking_batch_production_date ON blanking_batches(production_date);
+CREATE INDEX idx_blanking_batch_material ON blanking_batches(material_code);
+CREATE INDEX idx_blanking_cart_status ON blanking_carts(status);
+CREATE INDEX idx_blanking_cart_destination ON blanking_carts(destination_press_id);
+CREATE INDEX idx_moulding_record_production_date ON moulding_production_records(production_date);
+CREATE INDEX idx_moulding_record_press ON moulding_production_records(press_id);
+CREATE INDEX idx_shortage_status ON material_shortage_requests(status);
+CREATE INDEX idx_shortage_required_at ON material_shortage_requests(required_at);

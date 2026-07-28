@@ -11,6 +11,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "user_accounts")
@@ -26,16 +28,19 @@ public class UserAccount extends BaseEntity {
     @Column(nullable = false, unique = true)
     private String email;
 
+    @Column(name = "employee_id", unique = true, length = 50)
+    private String employeeId;
+
     @JsonIgnore
     @Column(nullable = false)
     private String passwordHash;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(nullable = false, length = 50)
     private Role role;
 
     @Column(nullable = false)
     @Builder.Default
     private boolean active = true;
 }
-

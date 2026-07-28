@@ -2,18 +2,24 @@ package com.stellana.mixing.config;
 
 import com.stellana.mixing.domain.*;
 import com.stellana.mixing.repository.*;
+import com.stellana.mixing.service.ShiftService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Configuration
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.demo-data.enabled", havingValue = "true", matchIfMissing = true)
 public class DemoDataInitializer implements CommandLineRunner {
     private final UserAccountRepository userRepository;
     private final RecipeRepository recipeRepository;
@@ -26,15 +32,36 @@ public class DemoDataInitializer implements CommandLineRunner {
     private final IssueThreadRepository issueRepository;
     private final TestSpecificationRepository specificationRepository;
     private final AuditLogRepository auditLogRepository;
+    private final ApprovedMaterialBatchRepository approvedMaterialBatchRepository;
+    private final BlankingBatchRepository blankingBatchRepository;
+    private final BlankingCartRepository blankingCartRepository;
+    private final PressRepository pressRepository;
+    private final CartTransferRepository cartTransferRepository;
+    private final CartReceiptRepository cartReceiptRepository;
+    private final MouldingProductionRecordRepository mouldingRecordRepository;
+    private final MaterialShortageRequestRepository shortageRequestRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final ShiftService shiftService;
+
     @Override
     @Transactional
     public void run(String... args) {
         if (userRepository.count() > 0) {
+            ensureEmployeeIds();
+            // An older prototype database containing the documented demo users
+            // is upgraded idempotently. A real database with different users is
+            // never populated with demo accounts or production records.
+            if (userRepository.existsByEmailIgnoreCase("manager@stellana.local")
+                    && userRepository.existsByEmailIgnoreCase("officer@stellana.local")
+                    && userRepository.existsByEmailIgnoreCase("admin@stellana.local")) {
+                seedDownstreamData();
+            }
             return;
         }
 
         UserAccount manager = userRepository.save(UserAccount.builder()
                 .fullName("Nadeesha Perera")
+                .employeeId("MGR-001")
                 .email("manager@stellana.local")
                 .passwordHash("$2y$10$QWnKd6iWXK5FoT0ixYbMRuDwllMm/iaJfB3PafkBKLuy0UG1HD0JC")
                 .role(Role.MANAGER)
@@ -42,6 +69,7 @@ public class DemoDataInitializer implements CommandLineRunner {
                 .build());
         UserAccount officer = userRepository.save(UserAccount.builder()
                 .fullName("Kasun Silva")
+                .employeeId("MIX-001")
                 .email("officer@stellana.local")
                 .passwordHash("$2y$10$9igLjj71RbiOVxSZlS.IIeXy5oKsiqNrHefbIgWSz326ExgVnDFcC")
                 .role(Role.MIXING_OFFICER)
@@ -49,6 +77,7 @@ public class DemoDataInitializer implements CommandLineRunner {
                 .build());
         UserAccount admin = userRepository.save(UserAccount.builder()
                 .fullName("System Administrator")
+                .employeeId("SYS-001")
                 .email("admin@stellana.local")
                 .passwordHash("$2y$10$8WMog1yIfPKC17s9Qnmn2.GXIWIRhM9ZCA63RUq82fQMFklovFUle")
                 .role(Role.SYSTEM_ADMIN)
@@ -199,6 +228,290 @@ public class DemoDataInitializer implements CommandLineRunner {
                 .actor(admin).action("INITIALIZE_DEMO_DATA").entityType("System").entityId(null)
                 .previousValue(null).newValue("Prototype demonstration records created")
                 .actionTime(LocalDateTime.now()).build());
+
+        seedDownstreamData();
+    }
+
+    private void ensureEmployeeIds() {
+        userRepository.findAll().forEach(user -> {
+            if (!StringUtils.hasText(user.getEmployeeId())) {
+                user.setEmployeeId(switch (user.getEmail().toLowerCase()) {
+                    case "manager@stellana.local" -> "MGR-001";
+                    case "officer@stellana.local" -> "MIX-001";
+                    case "admin@stellana.local" -> "SYS-001";
+                    default -> "LEGACY-" + String.format("%04d", user.getId());
+                });
+                userRepository.save(user);
+            }
+        });
+    }
+
+    private void seedDownstreamData() {
+        ensureEmployeeIds();
+        UserAccount manager = requireUser("manager@stellana.local");
+        UserAccount admin = requireUser("admin@stellana.local");
+        UserAccount blankingOperator = ensureUser(
+                "Ishara Fernando", "BLK-001", "blanking.operator@stellana.local",
+                "Blanking123!", Role.BLANKING_OPERATOR);
+        ensureUser(
+                "Saman Jayawardena", "BLS-001", "blanking.supervisor@stellana.local",
+                "BlankingSup123!", Role.BLANKING_SUPERVISOR);
+        UserAccount mouldingOperator = ensureUser(
+                "Tharindu Kumara", "MLD-001", "moulding.operator@stellana.local",
+                "Moulding123!", Role.MOULDING_OPERATOR);
+        ensureUser(
+                "Shalini Perera", "MLS-001", "moulding.supervisor@stellana.local",
+                "MouldingSup123!", Role.MOULDING_SUPERVISOR);
+        ensureUser(
+                "Dilshan Rodrigo", "LAB-001", "lab.officer@stellana.local",
+                "LabOfficer123!", Role.LAB_OFFICER);
+
+        Press press01 = ensurePress("PRESS-01", "Moulding Press 01");
+        Press press02 = ensurePress("PRESS-02", "Moulding Press 02");
+        ensurePress("PRESS-03", "Moulding Press 03");
+
+        if (blankingBatchRepository.count() > 0) {
+            return;
+        }
+
+        ProductionBatch releasedMixingBatch = batchRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(batch -> batch.getLaboratoryStatus() == LabDecision.PASS)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Demo downstream data requires one laboratory-passed Mixing batch."));
+        releasedMixingBatch.setStatus(BatchStatus.RELEASED_TO_BLANKING);
+        releasedMixingBatch.setReleaseStatus(ReleaseStatus.APPROVED_FOR_BLANKING);
+        batchRepository.save(releasedMixingBatch);
+        LabSample approval = sampleRepository.findFirstByBatchIdOrderBySentToLabAtDesc(releasedMixingBatch.getId())
+                .orElse(null);
+        BigDecimal approvedQuantity = releasedMixingBatch.getActualOutputQuantityKg() == null
+                ? releasedMixingBatch.getPlannedQuantityKg()
+                : releasedMixingBatch.getActualOutputQuantityKg();
+        ApprovedMaterialBatch approved = approvedMaterialBatchRepository
+                .findByMixingBatchNumberIgnoreCase(releasedMixingBatch.getBatchNumber())
+                .orElseGet(() -> approvedMaterialBatchRepository.save(ApprovedMaterialBatch.builder()
+                        .mixingBatch(releasedMixingBatch)
+                        .labApproval(approval)
+                        .mixingBatchNumber(releasedMixingBatch.getBatchNumber())
+                        .materialCode(releasedMixingBatch.getRecipeRevision().getRecipe().getRecipeCode())
+                        .compoundName(releasedMixingBatch.getRecipeRevision().getRecipe().getCompoundName())
+                        .labStatus(LabDecision.PASS)
+                        .approvedQuantityKg(approvedQuantity)
+                        .availableQuantityKg(approvedQuantity)
+                        .approvedAt(approval != null && approval.getTestDateTime() != null
+                                ? approval.getTestDateTime()
+                                : LocalDateTime.now().minusHours(6))
+                        .notes("Seeded approved batch linked to the existing Mixing and Lab records.")
+                        .active(true)
+                        .build()));
+
+        ShiftService.ShiftContext shift = shiftService.current();
+        BlankingBatch blankingOne = blankingBatchRepository.save(BlankingBatch.builder()
+                .batchNumber("BLK-DEMO-001")
+                .approvedMaterialBatch(approved)
+                .mixingBatchNumber(approved.getMixingBatchNumber())
+                .materialCode(approved.getMaterialCode())
+                .materialConsumedKg(new BigDecimal("40.000"))
+                .plannedProductionQuantity(120)
+                .productionQuantity(120)
+                .rejectedQuantity(4)
+                .availableGoodBlankQuantity(51)
+                .productionDate(shift.productionDate())
+                .shift(shift.shift())
+                .startTime(shift.serverTime().minusHours(5))
+                .endTime(shift.serverTime().minusHours(4))
+                .operator(blankingOperator)
+                .operatorEmployeeId(blankingOperator.getEmployeeId())
+                .notes("Demonstration Blanking batch with prepared and dispatched carts.")
+                .status(BlankingBatchStatus.PARTIALLY_DISPATCHED)
+                .build());
+        BlankingBatch blankingTwo = blankingBatchRepository.save(BlankingBatch.builder()
+                .batchNumber("BLK-DEMO-002")
+                .approvedMaterialBatch(approved)
+                .mixingBatchNumber(approved.getMixingBatchNumber())
+                .materialCode(approved.getMaterialCode())
+                .materialConsumedKg(new BigDecimal("35.000"))
+                .plannedProductionQuantity(90)
+                .productionQuantity(90)
+                .rejectedQuantity(2)
+                .availableGoodBlankQuantity(58)
+                .productionDate(shift.productionDate())
+                .shift(shift.shift())
+                .startTime(shift.serverTime().minusHours(4))
+                .endTime(shift.serverTime().minusHours(3))
+                .operator(blankingOperator)
+                .operatorEmployeeId(blankingOperator.getEmployeeId())
+                .notes("Demonstration Blanking batch feeding Press 02.")
+                .status(BlankingBatchStatus.PARTIALLY_DISPATCHED)
+                .build());
+        approved.setAvailableQuantityKg(approvedQuantity.subtract(new BigDecimal("75.000")));
+        approvedMaterialBatchRepository.save(approved);
+
+        BlankingCart dispatched = blankingCartRepository.save(BlankingCart.builder()
+                .cartNumber("CART-DEMO-001")
+                .blankingBatch(blankingOne)
+                .materialCode(blankingOne.getMaterialCode())
+                .quantity(40)
+                .remainingQuantity(40)
+                .createdBy(blankingOperator)
+                .destinationPress(press01)
+                .dispatchedAt(shift.serverTime().minusHours(2))
+                .dispatchedBy(blankingOperator)
+                .status(BlankingCartStatus.DISPATCHED)
+                .blankingNote("Priority replenishment for Press 01.")
+                .build());
+        cartTransferRepository.save(CartTransfer.builder()
+                .cart(dispatched)
+                .fromSection(ProductionSection.BLANKING)
+                .destinationPress(press01)
+                .quantity(dispatched.getQuantity())
+                .dispatchedBy(blankingOperator)
+                .dispatchedAt(dispatched.getDispatchedAt())
+                .status(CartTransferStatus.DISPATCHED)
+                .build());
+
+        BlankingCart received = blankingCartRepository.save(BlankingCart.builder()
+                .cartNumber("CART-DEMO-002")
+                .blankingBatch(blankingTwo)
+                .materialCode(blankingTwo.getMaterialCode())
+                .quantity(30)
+                .remainingQuantity(12)
+                .createdBy(blankingOperator)
+                .destinationPress(press02)
+                .dispatchedAt(shift.serverTime().minusHours(3))
+                .dispatchedBy(blankingOperator)
+                .status(BlankingCartStatus.PARTIALLY_CONSUMED)
+                .blankingNote("Received at Press 02; sample production recorded.")
+                .build());
+        cartTransferRepository.save(CartTransfer.builder()
+                .cart(received)
+                .fromSection(ProductionSection.BLANKING)
+                .destinationPress(press02)
+                .quantity(received.getQuantity())
+                .dispatchedBy(blankingOperator)
+                .dispatchedAt(received.getDispatchedAt())
+                .status(CartTransferStatus.RECEIVED)
+                .build());
+        cartReceiptRepository.save(CartReceipt.builder()
+                .cart(received)
+                .receivedQuantity(30)
+                .productionDate(shift.productionDate())
+                .shift(shift.shift())
+                .receivedAt(shift.serverTime().minusHours(2).minusMinutes(45))
+                .receivingOperator(mouldingOperator)
+                .receivingOperatorEmployeeId(mouldingOperator.getEmployeeId())
+                .press(press02)
+                .sendingOperator(blankingOperator)
+                .dispatchTime(received.getDispatchedAt())
+                .receiptStatus(CartReceiptStatus.RECEIVED)
+                .build());
+        mouldingRecordRepository.save(MouldingProductionRecord.builder()
+                .press(press02)
+                .productionDate(shift.productionDate())
+                .shift(shift.shift())
+                .startTime(shift.serverTime().minusHours(2).minusMinutes(30))
+                .endTime(shift.serverTime().minusHours(1))
+                .operator(mouldingOperator)
+                .operatorEmployeeId(mouldingOperator.getEmployeeId())
+                .cart(received)
+                .blankingBatch(blankingTwo)
+                .quantityReceived(30)
+                .goodTyreQuantity(16)
+                .rejectedTyreQuantity(1)
+                .rejectedTyreWeightPerItemGrams(new BigDecimal("100.000"))
+                .totalRejectedTyreWeightGrams(new BigDecimal("100.000"))
+                .rejectedBlankQuantity(1)
+                .remainingBlankQuantity(12)
+                .downtimeMinutes(8)
+                .downtimeReason("Demonstration mould cleaning stop.")
+                .operatorNote("Seed record; no rejection limits are inferred.")
+                .status(MouldingRecordStatus.COMPLETED)
+                .build());
+        press02.setAvailableBlankQuantity(12);
+        press02.setGoodTyreQuantity(16);
+        press02.setRejectedTyreQuantity(1);
+        press02.setRejectedBlankQuantity(1);
+        press02.setCurrentOperator(mouldingOperator);
+        press02.setCurrentBlankingBatch(blankingTwo);
+        press02.setStatus(PressStatus.IDLE);
+        press02.setLastActivityAt(shift.serverTime().minusHours(1));
+        pressRepository.save(press02);
+
+        blankingCartRepository.save(BlankingCart.builder()
+                .cartNumber("CART-DEMO-003")
+                .blankingBatch(blankingOne)
+                .materialCode(blankingOne.getMaterialCode())
+                .quantity(25)
+                .remainingQuantity(25)
+                .createdBy(blankingOperator)
+                .destinationPress(press01)
+                .status(BlankingCartStatus.PREPARED)
+                .blankingNote("Prepared cart waiting for dispatch.")
+                .build());
+
+        MaterialShortageRequest shortage = MaterialShortageRequest.builder()
+                .requestNumber("SRQ-DEMO-001")
+                .press(press01)
+                .currentBlankingBatch(blankingOne)
+                .currentAvailableBlankQuantity(press01.getAvailableBlankQuantity())
+                .requestedBlankQuantity(30)
+                .requiredMaterialCode(blankingOne.getMaterialCode())
+                .requiredAt(shift.serverTime().plusHours(1))
+                .priority(ShortagePriority.URGENT)
+                .sender(mouldingOperator)
+                .senderEmployeeId(mouldingOperator.getEmployeeId())
+                .productionDate(shift.productionDate())
+                .senderShift(shift.shift())
+                .status(ShortageStatus.OPEN)
+                .build();
+        shortage.addMessage(RequestMessage.builder()
+                .sender(mouldingOperator)
+                .message("Press 01 requires another 30 blanks for the current production plan.")
+                .statusSnapshot(ShortageStatus.OPEN)
+                .build());
+        shortageRequestRepository.save(shortage);
+
+        auditLogRepository.save(AuditLog.builder()
+                .actor(admin)
+                .action("INITIALIZE_DOWNSTREAM_DEMO_DATA")
+                .entityType("System")
+                .previousValue(null)
+                .newValue("Blanking and Moulding demonstration records created")
+                .actionTime(LocalDateTime.now())
+                .build());
+    }
+
+    private UserAccount ensureUser(String fullName, String employeeId, String email,
+                                   String password, Role role) {
+        return userRepository.findByEmailIgnoreCase(email)
+                .orElseGet(() -> userRepository.save(UserAccount.builder()
+                        .fullName(fullName)
+                        .employeeId(employeeId)
+                        .email(email)
+                        .passwordHash(passwordEncoder.encode(password))
+                        .role(role)
+                        .active(true)
+                        .build()));
+    }
+
+    private UserAccount requireUser(String email) {
+        return userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new IllegalStateException("Required demo user not found: " + email));
+    }
+
+    private Press ensurePress(String number, String name) {
+        return pressRepository.findByPressNumberIgnoreCase(number)
+                .orElseGet(() -> pressRepository.save(Press.builder()
+                        .pressNumber(number)
+                        .pressName(name)
+                        .status(PressStatus.WAITING_FOR_BLANKS)
+                        .availableBlankQuantity(0)
+                        .goodTyreQuantity(0)
+                        .rejectedTyreQuantity(0)
+                        .rejectedBlankQuantity(0)
+                        .lastActivityAt(LocalDateTime.now().minusMinutes(20))
+                        .active(true)
+                        .build()));
     }
 
     private RecipeIngredient ingredient(String code, String name, String quantity, String unit,

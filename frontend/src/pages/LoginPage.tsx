@@ -32,8 +32,8 @@ export function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-screen min-w-[1180px] grid-cols-[1.12fr_0.88fr] bg-ink">
-      <section className="relative flex overflow-hidden px-16 py-14 text-white">
+    <main className="grid min-h-screen bg-ink lg:grid-cols-[1.12fr_0.88fr]">
+      <section className="relative hidden overflow-hidden px-10 py-12 text-white lg:flex xl:px-16 xl:py-14">
         <div className="absolute -left-32 top-20 h-96 w-96 rounded-full border-[70px] border-white/[0.025]" />
         <div className="absolute bottom-[-14rem] right-[-8rem] h-[34rem] w-[34rem] rounded-full border-[90px] border-process/10" />
         <div className="relative z-10 flex w-full flex-col">
@@ -52,7 +52,7 @@ export function LoginPage() {
               <RadioTower size={16} className="text-emerald-400" />
               Real-time production control
             </div>
-            <h1 className="text-6xl font-black leading-[1.02] tracking-[-0.05em]">
+            <h1 className="text-5xl font-black leading-[1.02] tracking-[-0.05em] xl:text-6xl">
               Every batch.
               <br />
               Every revision.
@@ -82,7 +82,7 @@ export function LoginPage() {
         </div>
       </section>
 
-      <section className="flex items-center justify-center bg-slate-100 p-12">
+      <section className="flex items-center justify-center bg-slate-100 p-5 sm:p-10 lg:p-12">
         <div className="w-full max-w-md">
           <div className="mb-9">
             <div className="mb-5 grid h-12 w-12 place-items-center rounded-xl bg-blue-100 text-process">
@@ -90,7 +90,7 @@ export function LoginPage() {
             </div>
             <h2 className="text-3xl font-black tracking-tight text-ink">Production sign in</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Use your Stellana Mixing Control account to continue.
+              Use your Stellana Production Tracking account to continue.
             </p>
           </div>
 
@@ -136,7 +136,7 @@ export function LoginPage() {
               </div>
             </label>
             <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? 'Signing in…' : 'Sign in to Mixing Control'}
+              {loading ? 'Signing in…' : 'Sign in to Production Control'}
               {!loading && <ArrowRight size={18} />}
             </button>
           </form>

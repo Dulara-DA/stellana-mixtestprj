@@ -32,7 +32,7 @@ export function MailboxPage() {
     void load()
     if (!token) return
     const client = new Client({
-      webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+      webSocketFactory: () => new SockJS('/ws'),
       connectHeaders: { Authorization: `Bearer ${token}` },
       reconnectDelay: 5000,
       onConnect: () => client.subscribe('/topic/issues', () => void load()),
@@ -84,10 +84,10 @@ export function MailboxPage() {
       />
       {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-      <div className="card grid min-h-[42rem] grid-cols-[22rem_1fr] overflow-hidden">
-        <aside className="border-r border-slate-200 bg-slate-50/70">
+      <div className="card grid min-h-[42rem] overflow-hidden lg:grid-cols-[22rem_1fr]">
+        <aside className="border-b border-slate-200 bg-slate-50/70 lg:border-b-0 lg:border-r">
           <div className="border-b border-slate-200 p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{issues.length} conversations</p></div>
-          <div className="max-h-[40rem] overflow-y-auto">
+          <div className="max-h-72 overflow-y-auto lg:max-h-[40rem]">
             {issues.map((issue) => {
               const unread = user?.role === 'MIXING_OFFICER' ? issue.unreadByOfficer : issue.unreadByManager
               return (
@@ -142,7 +142,7 @@ export function MailboxPage() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-ink/60 p-8 backdrop-blur-sm">
           <form onSubmit={create} className="w-full max-w-2xl rounded-2xl bg-white p-7 shadow-2xl">
             <div className="mb-6 flex items-start justify-between"><div><h2 className="text-xl font-black text-ink">Report a mixing issue</h2><p className="mt-1 text-sm text-slate-500">The manager will receive a real-time notification.</p></div><button type="button" onClick={() => setShowCreate(false)} className="grid h-10 w-10 place-items-center rounded-xl hover:bg-slate-100" aria-label="Close"><X size={19} /></button></div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid gap-4 sm:grid-cols-3">
               <label className="col-span-2"><span className="label">Batch (optional)</span><select className="field" value={form.batchId} onChange={(e) => setForm({ ...form, batchId: e.target.value })}><option value="">General mixing issue</option>{batches.map((batch) => <option key={batch.id} value={batch.id}>{batch.batchNumber} · {batch.status.replaceAll('_', ' ')}</option>)}</select></label>
               <label><span className="label">Priority</span><select className="field" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}><option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="URGENT">Urgent</option></select></label>
               <label className="col-span-3"><span className="label">Subject</span><input className="field" required value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} /></label>
@@ -155,4 +155,3 @@ export function MailboxPage() {
     </div>
   )
 }
-

@@ -119,7 +119,7 @@ export function BatchDetailsPage() {
       />
       {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-      <div className="mb-6 grid grid-cols-4 gap-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { icon: Weight, label: 'Planned quantity', value: `${batch.plannedQuantityKg} kg` },
           { icon: UserRound, label: 'Assigned officer', value: batch.assignedOfficer.fullName },
@@ -136,7 +136,7 @@ export function BatchDetailsPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-[1.25fr_0.75fr] gap-6">
+      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-6">
           <section className="card overflow-hidden">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
@@ -146,7 +146,7 @@ export function BatchDetailsPage() {
               </div>
               <Link to={`/stages?batch=${batch.id}`} className="btn-secondary">Open stage controls</Link>
             </div>
-            <div className="grid grid-cols-2 gap-4 p-6">
+            <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-6">
               {[1, 2].map((number) => {
                 const stage = stages.find((item) => item.stageNumber === number)
                 return (

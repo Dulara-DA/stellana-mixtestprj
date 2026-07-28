@@ -45,15 +45,19 @@ public class UserService {
         if (userAccountRepository.existsByEmailIgnoreCase(request.email())) {
             throw new BusinessRuleException("A user with this email already exists.");
         }
+        if (userAccountRepository.existsByEmployeeIdIgnoreCase(request.employeeId())) {
+            throw new BusinessRuleException("A user with this employee ID already exists.");
+        }
         UserAccount saved = userAccountRepository.save(UserAccount.builder()
                 .fullName(request.fullName().trim())
+                .employeeId(request.employeeId().trim().toUpperCase())
                 .email(request.email().trim().toLowerCase())
                 .passwordHash(passwordEncoder.encode(request.password()))
                 .role(request.role())
                 .active(true)
                 .build());
         auditService.record(actor, "CREATE_USER", "UserAccount", saved.getId(), null,
-                saved.getEmail() + " / " + saved.getRole(), null, null);
+                saved.getEmployeeId() + " / " + saved.getEmail() + " / " + saved.getRole(), null, null);
         return user(saved);
     }
 

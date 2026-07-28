@@ -28,6 +28,18 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
 - Timestamps use the server timezone (`Asia/Colombo`) for display and UTC-capable ISO transport.
 - Test values are stored as decimal/text results. No automatic laboratory decision is made without configured and confirmed specifications.
 - Reprocessing retains a reference to the failed source batch; a new reprocessing batch can be created later without rewriting the source history.
+- Shift A is 06:00–14:00, Shift B 14:00–22:00, and Shift C 22:00–06:00
+  in `Asia/Colombo`. After-midnight Shift C records belong to the previous
+  production date.
+- Approved compound consumption is kilograms. Blanking output, cart contents,
+  press inventory, good tyres and rejects are integer item counts. The prototype
+  does not invent a kg-to-blank conversion.
+- For Moulding reconciliation, each consumed blank becomes exactly one good
+  tyre, rejected tyre, or rejected blank.
+- A cart has one intended press and one receipt. Only an authorized override
+  with a reason can receive it at another press.
+- The manager's delayed-transfer flag uses a configurable 30-minute placeholder.
+  It is not a confirmed service-level target.
 
 ## Questions to confirm with Stellana
 
@@ -51,3 +63,24 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
 18. Does the written compound/batch notation always omit the `A-` prefix, or
     should printed digital labels show the full recipe code (for example,
     `A-96 × 6078`)?
+19. What is the confirmed relationship between compound kilograms and expected
+    blank count for each material or tyre size?
+20. Is one blank always consumed per tyre at every Moulding press, including
+    startup/setup scrap?
+21. Are the proposed Shift A/B/C times correct, and how should public holidays,
+    overtime and planned shift extensions be assigned?
+22. Is a cart always dedicated to one Blanking batch/material and one destination
+    press, or can physical carts contain separated batches?
+23. Which employee-ID format is authoritative, and should it be synchronized
+    with HR/Active Directory?
+24. Can a Moulding operator receive a cart, or must receipt be performed by a
+    supervisor/storekeeper?
+25. Which roles may correct completed Blanking quantities and press inventory,
+    and is dual approval required?
+26. What are the official press numbers/names and downtime reason master data?
+27. What transfer time constitutes a delay between Blanking and Moulding?
+28. Does rejected tyre weight mean weight per item or one measured total? The
+    prototype records per-item grams and calculates the total.
+29. When and how are reusable carts returned to Blanking?
+30. What production target, cycle time and expected next-material formula should
+    drive press forecasts? The prototype uses only open request quantities.

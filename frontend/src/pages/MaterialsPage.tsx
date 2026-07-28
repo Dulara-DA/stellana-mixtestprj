@@ -98,7 +98,7 @@ export function MaterialsPage() {
       ) : (
         <div className="space-y-4">
           {requests.map((request) => (
-            <section key={request.id} className="card overflow-hidden">
+            <section key={request.id} className="card overflow-x-auto">
               <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
                 <div className="flex items-center gap-4">
                   <div><p className="font-black text-ink">{request.requestNumber}</p><p className="mt-1 text-xs text-slate-500">{request.batchNumber} · {request.recipeCode} rev {request.revisionNumber}</p></div>
@@ -111,11 +111,11 @@ export function MaterialsPage() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-[1.2fr_0.55fr_0.55fr_0.55fr_0.85fr] bg-slate-50 px-6 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500">
+              <div className="grid min-w-[760px] grid-cols-[1.2fr_0.55fr_0.55fr_0.55fr_0.85fr] bg-slate-50 px-6 py-2.5 text-xs font-bold uppercase tracking-wide text-slate-500">
                 <span>Material</span><span>Required</span><span>Requested</span><span>Issued</span><span>Lot number</span>
               </div>
               {request.items.map((item) => (
-                <div key={item.id} className="grid grid-cols-[1.2fr_0.55fr_0.55fr_0.55fr_0.85fr] items-center border-t border-slate-100 px-6 py-3 text-sm">
+                <div key={item.id} className="grid min-w-[760px] grid-cols-[1.2fr_0.55fr_0.55fr_0.55fr_0.85fr] items-center border-t border-slate-100 px-6 py-3 text-sm">
                   <span><strong className="text-ink">{item.materialName}</strong><small className="ml-2 text-slate-400">{item.materialCode}</small></span>
                   <span>{item.requiredQuantity} {item.unit}</span>
                   <span>{item.requestedQuantity} {item.unit}</span>
@@ -152,7 +152,7 @@ export function MaterialsPage() {
             </div>
             <div className="space-y-3">
               {selected.items.map((item) => (
-                <div key={item.id} className="grid grid-cols-[1.2fr_0.6fr_0.9fr] items-end gap-4 rounded-xl border border-slate-200 p-4">
+                <div key={item.id} className="grid items-end gap-4 rounded-xl border border-slate-200 p-4 md:grid-cols-[1.2fr_0.6fr_0.9fr]">
                   <div><p className="font-bold text-ink">{item.materialName}</p><p className="mt-1 text-xs text-slate-500">{item.materialCode} · Requested {item.requestedQuantity} {item.unit}</p></div>
                   <label><span className="label">Issued ({item.unit})</span><input className="field" type="number" min="0" max={item.requestedQuantity} step="0.001" value={issueValues[item.id]?.quantity ?? ''} onChange={(event) => setIssueValues({ ...issueValues, [item.id]: { ...issueValues[item.id], quantity: event.target.value } })} /></label>
                   <label><span className="label">Lot number (optional)</span><input className="field" value={issueValues[item.id]?.lot ?? ''} onChange={(event) => setIssueValues({ ...issueValues, [item.id]: { ...issueValues[item.id], lot: event.target.value } })} /></label>
@@ -166,4 +166,3 @@ export function MaterialsPage() {
     </div>
   )
 }
-

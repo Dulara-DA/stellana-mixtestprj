@@ -50,6 +50,46 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   return response.json() as Promise<T>
 }
 
+export async function downloadFile(path: string, fallbackFilename: string): Promise<string> {
+  const token = localStorage.getItem('stellana_token')
+  const headers = new Headers()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const response = await fetch(`${API_URL}${path}`, { headers })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    if (response.status === 401) {
+      localStorage.removeItem('stellana_token')
+      localStorage.removeItem('stellana_user')
+      sessionStorage.setItem(
+        SESSION_MESSAGE_KEY,
+        payload?.message ?? 'Your session has expired. Please sign in again.',
+      )
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT))
+    }
+    throw new ApiError(
+      payload?.message ?? `Download failed with status ${response.status}`,
+      response.status,
+      payload?.fieldErrors ?? {},
+    )
+  }
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const encodedFilename = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const plainFilename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+  const filename = encodedFilename
+    ? decodeURIComponent(encodedFilename)
+    : plainFilename ?? fallbackFilename
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
+  return filename
+}
+
 export function displayError(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.'
 }

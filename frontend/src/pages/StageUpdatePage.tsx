@@ -118,14 +118,14 @@ export function StageUpdatePage() {
 
       {selectedBatch && (
         <>
-          <div className="mb-6 grid grid-cols-[1fr_1fr_1fr_1fr] gap-4">
+          <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="card p-5"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Factory reference</p><p className="mt-2 text-lg font-black text-ink">{selectedBatch.factoryReference}</p></div>
             <div className="card p-5"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Recipe</p><p className="mt-2 text-lg font-black text-ink">{selectedBatch.recipeCode} · Rev {selectedBatch.revisionNumber}</p></div>
             <div className="card p-5"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Planned load</p><p className="mt-2 text-lg font-black text-ink">{selectedBatch.plannedQuantityKg} kg</p></div>
             <div className="card p-5"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current status</p><div className="mt-2"><StatusBadge status={selectedBatch.status} /></div></div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid gap-6 xl:grid-cols-2">
             {[1, 2].map((number) => {
               const stage = stages.find((item) => item.stageNumber === number)
               const canStart = !stage && (
@@ -154,7 +154,7 @@ export function StageUpdatePage() {
 
                   {stage && (
                     <div className="mt-6">
-                      <dl className="mb-5 grid grid-cols-3 gap-4 rounded-xl bg-slate-50 p-4 text-sm">
+                      <dl className="mb-5 grid gap-4 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-3">
                         <div><dt className="text-xs text-slate-400">IN time</dt><dd className="mt-1 font-bold">{formatDateTime(stage.startTime)}</dd></div>
                         <div><dt className="text-xs text-slate-400">OUT time</dt><dd className="mt-1 font-bold">{stage.endTime ? formatDateTime(stage.endTime) : 'Processing…'}</dd></div>
                         <div>
@@ -174,12 +174,12 @@ export function StageUpdatePage() {
                           <div className="mb-5 grid grid-cols-2 gap-3">
                             <button className="btn-secondary" onClick={() => pause(stage)}><Pause size={17} /> Pause stage</button>
                           </div>
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid gap-3 sm:grid-cols-2">
                             <label><span className="label">Actual quantity (kg)</span><input className="field" type="number" min="0.001" step="0.001" value={completion.actualQuantity} onChange={(e) => setCompletion({ ...completion, actualQuantity: e.target.value })} /></label>
                             <label><span className="label">Temperature °C</span><input className="field" type="number" step="0.1" value={completion.temperatureCelsius} onChange={(e) => setCompletion({ ...completion, temperatureCelsius: e.target.value })} placeholder="Optional" /></label>
                             <label><span className="label">Mixing time (minutes)</span><input className="field" type="number" min="0.1" step="0.1" value={completion.mixingTimeMinutes} onChange={(e) => setCompletion({ ...completion, mixingTimeMinutes: e.target.value })} placeholder="e.g. 8.0" /></label>
                             <label><span className="label">Speed RPM</span><input className="field" type="number" step="0.1" value={completion.speedRpm} onChange={(e) => setCompletion({ ...completion, speedRpm: e.target.value })} placeholder="Optional" /></label>
-                            <label className="col-span-2"><span className="label">Notes</span><textarea className="field min-h-20" value={completion.notes} onChange={(e) => setCompletion({ ...completion, notes: e.target.value })} /></label>
+                            <label className="sm:col-span-2"><span className="label">Notes</span><textarea className="field min-h-20" value={completion.notes} onChange={(e) => setCompletion({ ...completion, notes: e.target.value })} /></label>
                           </div>
                           <button className="btn-primary mt-4 w-full" onClick={() => complete(stage)}><Save size={17} /> Record OUT & complete Stage {number}</button>
                         </>

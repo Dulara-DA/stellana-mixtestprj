@@ -22,7 +22,7 @@ export function NotificationsPage() {
     void load()
     if (!token || !user) return
     const client = new Client({
-      webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+      webSocketFactory: () => new SockJS('/ws'),
       connectHeaders: { Authorization: `Bearer ${token}` },
       reconnectDelay: 5000,
       onConnect: () => client.subscribe(`/topic/notifications/${user.id}`, () => void load()),
@@ -56,4 +56,3 @@ export function NotificationsPage() {
     </div>
   )
 }
-

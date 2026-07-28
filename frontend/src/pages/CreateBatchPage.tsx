@@ -83,10 +83,10 @@ export function CreateBatchPage() {
         actions={<Link to="/batches" className="btn-secondary"><ArrowLeft size={17} /> Back to batches</Link>}
       />
 
-      <div className="grid grid-cols-[1fr_22rem] gap-6">
-        <form onSubmit={submit} className="card p-7">
+      <div className="grid gap-6 xl:grid-cols-[1fr_22rem]">
+        <form onSubmit={submit} className="card p-5 sm:p-7">
           {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid gap-5 sm:grid-cols-2">
             <label>
               <span className="label">Factory batch/tag number</span>
               <input
@@ -114,7 +114,7 @@ export function CreateBatchPage() {
                 placeholder="Maximum 240 kg"
               />
             </label>
-            <label className="col-span-2">
+            <label className="sm:col-span-2">
               <span className="label">Active recipe revision</span>
               <select
                 className="field"
@@ -130,7 +130,7 @@ export function CreateBatchPage() {
                 ))}
               </select>
             </label>
-            <label className="col-span-2">
+            <label className="sm:col-span-2">
               <span className="label">Reprocessing source batch (optional)</span>
               <select
                 className="field"
