@@ -3,6 +3,7 @@ package com.stellana.mixing.service;
 import com.stellana.mixing.api.ApiModels.ProductionManagerSummary;
 import com.stellana.mixing.domain.BlankingBatch;
 import com.stellana.mixing.domain.BlankingCart;
+import com.stellana.mixing.domain.BlankReturn;
 import com.stellana.mixing.domain.LabSample;
 import com.stellana.mixing.domain.MixingStage;
 import com.stellana.mixing.domain.MouldingProductionRecord;
@@ -11,6 +12,7 @@ import com.stellana.mixing.domain.ProductionShift;
 import com.stellana.mixing.domain.UserAccount;
 import com.stellana.mixing.repository.BlankingBatchRepository;
 import com.stellana.mixing.repository.BlankingCartRepository;
+import com.stellana.mixing.repository.BlankReturnRepository;
 import com.stellana.mixing.repository.LabSampleRepository;
 import com.stellana.mixing.repository.MixingStageRepository;
 import com.stellana.mixing.repository.MouldingProductionRecordRepository;
@@ -50,6 +52,7 @@ public class CombinedProductionPdfService {
     private final LabSampleRepository labSampleRepository;
     private final BlankingBatchRepository blankingBatchRepository;
     private final BlankingCartRepository blankingCartRepository;
+    private final BlankReturnRepository blankReturnRepository;
     private final MouldingProductionRecordRepository mouldingRecordRepository;
     private final CurrentUserService currentUserService;
     private final ShiftService shiftService;
@@ -98,6 +101,20 @@ public class CombinedProductionPdfService {
                 .filter(value -> matches(value.getCart().getCartNumber(), cartNumber))
                 .filter(value -> matches(value.getBlankingBatch().getMaterialCode(), materialCode))
                 .toList();
+        List<BlankReturn> returns = blankReturnRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(value -> !value.getSendingDateTime().toLocalDate().isBefore(range.from())
+                        && !value.getSendingDateTime().toLocalDate().isAfter(range.to()))
+                .filter(value -> shift == null || value.getShift() == shift)
+                .filter(value -> pressId == null || value.getPress().getId().equals(pressId))
+                .filter(value -> operatorId == null
+                        || value.getSendingOperator().getId().equals(operatorId)
+                        || (value.getReceivingOperator() != null
+                        && value.getReceivingOperator().getId().equals(operatorId)))
+                .filter(value -> matches(value.getBlankingBatch().getBatchNumber(), blankingBatchNumber))
+                .filter(value -> matches(value.getCompoundBatchNumber(), mixingBatchNumber))
+                .filter(value -> matches(value.getCart().getCartNumber(), cartNumber))
+                .filter(value -> matches(value.getCompoundCode(), materialCode))
+                .toList();
 
         try (PDDocument document = new PDDocument()) {
             ReportCanvas canvas = new ReportCanvas(document);
@@ -112,10 +129,12 @@ public class CombinedProductionPdfService {
             drawBlanking(canvas, blankingBatches);
             drawCarts(canvas, carts);
             drawMoulding(canvas, mouldingRecords);
+            drawReturns(canvas, returns);
             canvas.note(
                     "Data reliability note",
-                    "Quantities are reported in their stored operational units. The system does not invent a "
-                            + "kg-to-blank or blank-to-tyre conversion. Unconfirmed targets and limits are excluded.");
+                    "Quantities are reported in explicit kg, g and piece units. Expected blanks use issued kg "
+                            + "and recorded average blank grams; no process-loss allowance is invented. "
+                            + "Unconfirmed targets and laboratory limits are excluded.");
             canvas.finish();
 
             ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -178,8 +197,10 @@ public class CombinedProductionPdfService {
                 new Metric("Planned mix", number(plannedMixingKg) + " kg"),
                 new Metric("Actual mix", number(actualMixingKg) + " kg"),
                 new Metric("Blanking batches", String.valueOf(summary.blankingBatchesProduced())),
-                new Metric("Blanks produced", String.valueOf(summary.blanksProduced())),
-                new Metric("Blanks dispatched", String.valueOf(summary.blanksDispatched())),
+                new Metric("Expected / actual blanks",
+                        number(summary.expectedBlankQuantity()) + " / " + summary.actualGoodBlankQuantity()),
+                new Metric("Compound used", number(summary.compoundUsedKg()) + " kg"),
+                new Metric("Compound available", number(summary.compoundAvailableKg()) + " kg"),
                 new Metric("Good tyres", String.valueOf(summary.goodTyres())),
                 new Metric("Rejected items",
                         String.valueOf(summary.rejectedTyres() + summary.rejectedBlanks()))
@@ -187,7 +208,11 @@ public class CombinedProductionPdfService {
         canvas.text("Moulding rejection rate: " + number(summary.rejectionPercentage())
                 + "% | Open shortages: " + summary.openShortageRequests()
                 + " | Delayed cart transfers: " + summary.delayedCartTransfers()
-                + " | Presses waiting for blanks: " + summary.pressesWaitingForBlanks());
+                + " | Avg transfer: " + number(summary.averageCartTransferMinutes()) + " min"
+                + " | Returned carts/pieces: " + summary.cartsReturned()
+                + "/" + summary.returnedBlankQuantity()
+                + " | Return variances: " + summary.returnVariances()
+                + " | Unbalanced records: " + summary.unbalancedRecords());
     }
 
     private void drawMixing(ReportCanvas canvas, List<MixingEntry> entries) throws IOException {
@@ -335,6 +360,45 @@ public class CombinedProductionPdfService {
         canvas.table(
                 "MOULDING RECORDS",
                 "Persisted production output, rejections, remaining inventory and downtime.",
+                columns,
+                rows);
+    }
+
+    private void drawReturns(ReportCanvas canvas, List<BlankReturn> returns) throws IOException {
+        List<Column> columns = List.of(
+                new Column("Return", 90),
+                new Column("Compound trace", 105),
+                new Column("Press / cart", 95),
+                new Column("Sent pieces / kg", 80),
+                new Column("Sending operator / time", 120),
+                new Column("Received / variance", 105),
+                new Column("Receiving operator / time", 120),
+                new Column("Status", 85)
+        );
+        List<List<String>> rows = returns.stream().map(value -> List.of(
+                value.getReturnNumber(),
+                value.getCompoundCode() + " / " + value.getCompoundBatchNumber()
+                        + "\n" + value.getBlankingBatch().getBatchNumber(),
+                value.getPress().getPressNumber() + "\n" + value.getCart().getCartNumber(),
+                value.getPreparedQuantity() + " pieces\n"
+                        + number(value.getMeasuredReturnWeightKg()) + " kg",
+                value.getSendingOperator().getFullName()
+                        + "\n" + dateTime(value.getSendingDateTime()),
+                value.getReceivedQuantity() == null
+                        ? "Awaiting"
+                        : value.getReceivedQuantity() + " pieces / "
+                        + number(value.getReceivedWeightKg()) + " kg"
+                        + "\nVariance " + value.getQuantityVariance() + " / "
+                        + number(value.getWeightVarianceKg()) + " kg",
+                value.getReceivingOperator() == null
+                        ? "-"
+                        : value.getReceivingOperator().getFullName()
+                        + "\n" + dateTime(value.getReceivingDateTime()),
+                enumText(value.getStatus())
+        )).toList();
+        canvas.table(
+                "BLANK RETURNS",
+                "Unused pieces are reserved at Moulding and restored to Blanking only after confirmed receipt.",
                 columns,
                 rows);
     }

@@ -9,6 +9,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -38,11 +39,25 @@ public class BlankingCart extends BaseEntity {
     @Column(nullable = false)
     private String materialCode;
 
+    private String mixingBatchNumber;
+
+    private String itemCode;
+
     @Column(nullable = false)
     private Integer quantity;
 
     @Column(nullable = false)
     private Integer remainingQuantity;
+
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    @Builder.Default
+    private Integer returnedQuantity = 0;
+
+    @Column(precision = 12, scale = 3)
+    private java.math.BigDecimal averageBlankWeightGrams;
+
+    @Column(precision = 12, scale = 3)
+    private java.math.BigDecimal materialWeightKg;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by_id", nullable = false)
@@ -58,10 +73,30 @@ public class BlankingCart extends BaseEntity {
     @JoinColumn(name = "dispatched_by_id")
     private UserAccount dispatchedBy;
 
+    private LocalDateTime heldAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "held_by_id")
+    private UserAccount heldBy;
+
+    @Column(length = 1000)
+    private String holdReason;
+
+    private LocalDateTime releasedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "released_by_id")
+    private UserAccount releasedBy;
+
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "varchar(40)")
     private BlankingCartStatus status;
 
     @Column(length = 1500)
     private String blankingNote;
+
+    @Version
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    @Builder.Default
+    private Long version = 0L;
 }

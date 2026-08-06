@@ -27,6 +27,46 @@ class DownstreamProductionMockMvcTest {
     @Autowired ObjectMapper objectMapper;
 
     @Test
+    void createsAndCompletesBlankingBatchFromTemporaryManualMixingReference() throws Exception {
+        String adminToken = login("admin@stellana.local", "Admin123!");
+        JsonNode created = postJson("/api/blanking/batches", adminToken,
+                objectMapper.createObjectNode()
+                        .put("batchNumber", "BLK-MANUAL-ENTRY")
+                        .put("mixingBatchNumber", "6199")
+                        .put("materialCode", "A-96-50")
+                        .put("materialConsumedKg", 5)
+                        .put("plannedProductionQuantity", 50)
+                        .put("averageBlankWeightGrams", 100)
+                        .put("itemCode", "UG 200×50")
+                        .put("millOperator", "Manual Test Mill Operator")
+                        .put("preformerOperator", "Manual Test Preformer Operator")
+                        .put("startImmediately", true));
+
+        assertThat(created.path("approvedMaterialBatchId").isNull()).isTrue();
+        assertThat(created.path("mixingBatchNumber").asText()).isEqualTo("6199");
+        assertThat(created.path("materialCode").asText()).isEqualTo("A-96-50");
+        assertThat(created.path("status").asText()).isEqualTo("IN_PROGRESS");
+
+        JsonNode completed = postJson(
+                "/api/blanking/batches/" + created.path("id").asLong() + "/complete",
+                adminToken,
+                objectMapper.createObjectNode()
+                        .put("productionQuantity", 40)
+                        .put("actualGoodBlankQuantity", 40)
+                        .put("rejectedQuantity", 0)
+                        .put("rejectedMaterialWeightKg", 0)
+                        .put("measuredRemainingCompoundWeightKg", 1)
+                        .put("supervisorConfirmation", false)
+                        .put("notes", "Manual source completion test."));
+
+        assertThat(completed.path("status").asText()).isEqualTo("READY");
+        assertThat(completed.path("actualUsedCompoundWeightKg").decimalValue())
+                .isEqualByComparingTo("4.000");
+        assertThat(completed.path("remainingCompoundWeightKg").decimalValue())
+                .isEqualByComparingTo("1.000");
+    }
+
+    @Test
     void enforcesRoleBoundariesAndCompletesCartToPressWorkflow() throws Exception {
         String mixingToken = login("officer@stellana.local", "Mixing123!");
         String mouldingToken = login("moulding.operator@stellana.local", "Moulding123!");

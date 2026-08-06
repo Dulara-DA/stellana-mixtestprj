@@ -9,6 +9,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -50,14 +51,43 @@ public class ApprovedMaterialBatch extends BaseEntity {
     @Column(nullable = false)
     private LabDecision labStatus;
 
-    @Column(nullable = false, precision = 12, scale = 3)
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
     private BigDecimal approvedQuantityKg;
 
-    @Column(nullable = false, precision = 12, scale = 3)
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
     private BigDecimal availableQuantityKg;
+
+    @Column(precision = 12, scale = 3)
+    private BigDecimal plannedQuantityKg;
+
+    @Column(precision = 12, scale = 3)
+    private BigDecimal receivedQuantityKg;
+
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
+    @Builder.Default
+    private BigDecimal reservedQuantityKg = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
+    @Builder.Default
+    private BigDecimal consumedQuantityKg = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
+    @Builder.Default
+    private BigDecimal returnedQuantityKg = BigDecimal.ZERO;
 
     @Column(nullable = false)
     private LocalDateTime approvedAt;
+
+    private LocalDateTime receivedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "receiving_operator_id")
+    private UserAccount receivingOperator;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, columnDefinition = "varchar(32) default 'AVAILABLE'")
+    @Builder.Default
+    private CompoundStockStatus stockStatus = CompoundStockStatus.AVAILABLE;
 
     @Column(length = 1500)
     private String notes;
@@ -65,4 +95,9 @@ public class ApprovedMaterialBatch extends BaseEntity {
     @Column(nullable = false)
     @Builder.Default
     private boolean active = true;
+
+    @Version
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    @Builder.Default
+    private Long version = 0L;
 }

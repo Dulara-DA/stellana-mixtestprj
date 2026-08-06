@@ -62,6 +62,8 @@ class CombinedProductionPdfMockMvcTest {
                     .contains("BLANKING RECORDS")
                     .contains("BLANKING TO MOULDING CARTS")
                     .contains("MOULDING RECORDS")
+                    .contains("BLANK RETURNS")
+                    .contains("RET-A96-CLOSED")
                     .contains("BLK-DEMO-001")
                     .contains("CART-DEMO-001")
                     .contains("PRESS-02");

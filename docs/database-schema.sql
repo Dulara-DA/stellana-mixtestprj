@@ -257,9 +257,18 @@ CREATE TABLE approved_material_batches (
     lab_status VARCHAR(30) NOT NULL,
     approved_quantity_kg NUMERIC(12,3) NOT NULL CHECK (approved_quantity_kg >= 0),
     available_quantity_kg NUMERIC(12,3) NOT NULL CHECK (available_quantity_kg >= 0),
+    planned_quantity_kg NUMERIC(12,3),
+    received_quantity_kg NUMERIC(12,3),
+    reserved_quantity_kg NUMERIC(12,3) NOT NULL DEFAULT 0,
+    consumed_quantity_kg NUMERIC(12,3) NOT NULL DEFAULT 0,
+    returned_quantity_kg NUMERIC(12,3) NOT NULL DEFAULT 0,
     approved_at TIMESTAMP NOT NULL,
+    received_at TIMESTAMP,
+    receiving_operator_id BIGINT REFERENCES user_accounts(id),
+    stock_status VARCHAR(32) NOT NULL DEFAULT 'AVAILABLE',
     notes VARCHAR(1500),
     active BOOLEAN NOT NULL DEFAULT TRUE,
+    version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
@@ -267,13 +276,27 @@ CREATE TABLE approved_material_batches (
 CREATE TABLE blanking_batches (
     id BIGSERIAL PRIMARY KEY,
     batch_number VARCHAR(255) NOT NULL UNIQUE,
-    approved_material_batch_id BIGINT NOT NULL REFERENCES approved_material_batches(id),
+    approved_material_batch_id BIGINT REFERENCES approved_material_batches(id),
     mixing_batch_number VARCHAR(255) NOT NULL,
     material_code VARCHAR(255) NOT NULL,
+    item_code VARCHAR(255),
+    mill_operator VARCHAR(255),
+    preformer_operator VARCHAR(255),
     material_consumed_kg NUMERIC(12,3) NOT NULL CHECK (material_consumed_kg > 0),
     planned_production_quantity INTEGER NOT NULL CHECK (planned_production_quantity > 0),
+    average_blank_weight_grams NUMERIC(12,3),
+    expected_blank_quantity NUMERIC(16,6),
+    expected_whole_blank_quantity INTEGER,
     production_quantity INTEGER,
+    actual_good_blank_quantity INTEGER,
     rejected_quantity INTEGER NOT NULL DEFAULT 0 CHECK (rejected_quantity >= 0),
+    rejected_material_weight_kg NUMERIC(12,3) NOT NULL DEFAULT 0,
+    actual_used_compound_weight_kg NUMERIC(12,3) NOT NULL DEFAULT 0,
+    remaining_compound_weight_kg NUMERIC(12,3) NOT NULL DEFAULT 0,
+    production_variance INTEGER NOT NULL DEFAULT 0,
+    unbalanced BOOLEAN NOT NULL DEFAULT FALSE,
+    balance_confirmation_reason VARCHAR(1000),
+    balance_confirmed_by_id BIGINT REFERENCES user_accounts(id),
     available_good_blank_quantity INTEGER NOT NULL DEFAULT 0 CHECK (available_good_blank_quantity >= 0),
     production_date DATE NOT NULL,
     shift VARCHAR(30) NOT NULL,
@@ -283,6 +306,7 @@ CREATE TABLE blanking_batches (
     operator_employee_id VARCHAR(255) NOT NULL,
     notes VARCHAR(1500),
     status VARCHAR(40) NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
@@ -300,6 +324,7 @@ CREATE TABLE presses (
     current_blanking_batch_id BIGINT REFERENCES blanking_batches(id),
     last_activity_at TIMESTAMP,
     active BOOLEAN NOT NULL DEFAULT TRUE,
+    version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
@@ -309,14 +334,25 @@ CREATE TABLE blanking_carts (
     cart_number VARCHAR(255) NOT NULL UNIQUE,
     blanking_batch_id BIGINT NOT NULL REFERENCES blanking_batches(id),
     material_code VARCHAR(255) NOT NULL,
+    mixing_batch_number VARCHAR(255),
+    item_code VARCHAR(255),
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     remaining_quantity INTEGER NOT NULL CHECK (remaining_quantity >= 0),
+    returned_quantity INTEGER NOT NULL DEFAULT 0 CHECK (returned_quantity >= 0),
+    average_blank_weight_grams NUMERIC(12,3),
+    material_weight_kg NUMERIC(12,3),
     created_by_id BIGINT NOT NULL REFERENCES user_accounts(id),
     destination_press_id BIGINT NOT NULL REFERENCES presses(id),
     dispatched_at TIMESTAMP,
     dispatched_by_id BIGINT REFERENCES user_accounts(id),
+    held_at TIMESTAMP,
+    held_by_id BIGINT REFERENCES user_accounts(id),
+    hold_reason VARCHAR(1000),
+    released_at TIMESTAMP,
+    released_by_id BIGINT REFERENCES user_accounts(id),
     status VARCHAR(40) NOT NULL,
     blanking_note VARCHAR(1500),
+    version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
@@ -336,6 +372,7 @@ CREATE TABLE cart_transfers (
 
 CREATE TABLE cart_receipts (
     id BIGSERIAL PRIMARY KEY,
+    receipt_number VARCHAR(255) UNIQUE,
     cart_id BIGINT NOT NULL UNIQUE REFERENCES blanking_carts(id),
     received_quantity INTEGER NOT NULL CHECK (received_quantity > 0),
     production_date DATE NOT NULL,
@@ -348,6 +385,55 @@ CREATE TABLE cart_receipts (
     dispatch_time TIMESTAMP NOT NULL,
     receipt_status VARCHAR(40) NOT NULL,
     override_reason VARCHAR(1000),
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE blank_returns (
+    id BIGSERIAL PRIMARY KEY,
+    return_number VARCHAR(255) NOT NULL UNIQUE,
+    press_id BIGINT NOT NULL REFERENCES presses(id),
+    cart_id BIGINT NOT NULL REFERENCES blanking_carts(id),
+    blanking_batch_id BIGINT NOT NULL REFERENCES blanking_batches(id),
+    compound_code VARCHAR(255) NOT NULL,
+    compound_batch_number VARCHAR(255) NOT NULL,
+    item_code VARCHAR(255),
+    prepared_quantity INTEGER NOT NULL CHECK (prepared_quantity > 0),
+    measured_return_weight_kg NUMERIC(12,3) NOT NULL,
+    average_blank_weight_grams NUMERIC(12,3) NOT NULL,
+    return_reason VARCHAR(1000) NOT NULL,
+    sending_operator_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    sending_date_time TIMESTAMP NOT NULL,
+    shift VARCHAR(30) NOT NULL,
+    moulding_note VARCHAR(1500),
+    receiving_operator_id BIGINT REFERENCES user_accounts(id),
+    receiving_date_time TIMESTAMP,
+    received_quantity INTEGER,
+    received_weight_kg NUMERIC(12,3),
+    quantity_variance INTEGER,
+    weight_variance_kg NUMERIC(12,3),
+    variance_note VARCHAR(1500),
+    status VARCHAR(40) NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE inventory_transactions (
+    id BIGSERIAL PRIMARY KEY,
+    transaction_type VARCHAR(50) NOT NULL,
+    source_section VARCHAR(30),
+    destination_section VARCHAR(30),
+    source_record_type VARCHAR(255),
+    source_record_id BIGINT,
+    destination_record_type VARCHAR(255),
+    destination_record_id BIGINT,
+    quantity NUMERIC(16,3) NOT NULL,
+    unit VARCHAR(40) NOT NULL,
+    weight_kg NUMERIC(16,3),
+    actor_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    transaction_time TIMESTAMP NOT NULL,
+    reason_reference VARCHAR(1500),
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
@@ -426,3 +512,8 @@ CREATE INDEX idx_moulding_record_production_date ON moulding_production_records(
 CREATE INDEX idx_moulding_record_press ON moulding_production_records(press_id);
 CREATE INDEX idx_shortage_status ON material_shortage_requests(status);
 CREATE INDEX idx_shortage_required_at ON material_shortage_requests(required_at);
+CREATE INDEX idx_blank_return_status ON blank_returns(status);
+CREATE INDEX idx_blank_return_cart ON blank_returns(cart_id);
+CREATE INDEX idx_inventory_transaction_time ON inventory_transactions(transaction_time);
+CREATE INDEX idx_inventory_transaction_source ON inventory_transactions(source_record_type, source_record_id);
+CREATE INDEX idx_inventory_transaction_destination ON inventory_transactions(destination_record_type, destination_record_id);

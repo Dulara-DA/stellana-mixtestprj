@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type FormEvent } from 'react'
-import { PackagePlus, Send, Truck } from 'lucide-react'
+import { Ban, PackagePlus, Send, Truck, Unlock } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { EmptyState } from '../components/EmptyState'
 import { LiveIndicator } from '../components/LiveIndicator'
@@ -68,6 +68,31 @@ export function BlankingCartsPage() {
     } catch (reason) { setError(displayError(reason)) }
   }
 
+  const hold = async (cart: BlankingCart) => {
+    const reason = window.prompt(`Why should ${cart.cartNumber} be held in Blanking?`)
+    if (!reason?.trim()) return
+    try {
+      await api(`/api/blanking/carts/${cart.id}/hold`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      })
+      setMessage(`${cart.cartNumber} held in Blanking.`)
+      await load()
+    } catch (reasonValue) { setError(displayError(reasonValue)) }
+  }
+
+  const release = async (cart: BlankingCart) => {
+    if (!window.confirm(`Release ${cart.cartNumber} and make it ready for dispatch?`)) return
+    try {
+      await api(`/api/blanking/carts/${cart.id}/release`, {
+        method: 'POST',
+        body: JSON.stringify({ note: 'Released from hold by authorized user.' }),
+      })
+      setMessage(`${cart.cartNumber} is ready for dispatch.`)
+      await load()
+    } catch (reasonValue) { setError(displayError(reasonValue)) }
+  }
+
   const openShortages = shortages.filter((item) => !['FULFILLED', 'CANCELLED'].includes(item.status))
   return (
     <div>
@@ -98,16 +123,21 @@ export function BlankingCartsPage() {
       {carts.length === 0 ? <EmptyState title="No carts prepared" message="Complete a blanking batch, then prepare a cart for a destination press." /> : (
         <div className="table-shell">
           <table>
-            <thead><tr><th>Cart</th><th>Source traceability</th><th>Quantity</th><th>Destination</th><th>Dispatch time</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th>Cart / item</th><th>Source traceability</th><th>Quantity / weight</th><th>Destination</th><th>Dispatch / hold</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>{carts.map((cart) => (
               <tr key={cart.id}>
-                <td><p className="font-black text-ink">{cart.cartNumber}</p><p className="text-xs">{formatDateTime(cart.createdAt)}</p></td>
+                <td><p className="font-black text-ink">{cart.cartNumber}</p><p className="text-xs">{cart.itemCode ?? 'Item TBC'} · {formatDateTime(cart.createdAt)}</p></td>
                 <td>{cart.blankingBatchNumber}<p className="text-xs text-slate-500">{cart.mixingBatchNumber} · {cart.materialCode}</p></td>
-                <td>{cart.quantity} blanks<p className="text-xs text-slate-500">{cart.remainingQuantity} remaining</p></td>
+                <td>{cart.quantity} pieces<p className="text-xs text-slate-500">{cart.materialWeightKg ?? '—'} kg · {cart.remainingQuantity} remaining · {cart.returnedQuantity} returned</p></td>
                 <td>{cart.destinationPressNumber}<p className="text-xs text-slate-500">{cart.destinationPressName}</p></td>
-                <td>{formatDateTime(cart.dispatchedAt)}</td>
+                <td>{cart.status === 'HELD' ? <><span className="font-bold text-amber-700">Held</span><p className="text-xs text-slate-500">{cart.holdReason} · {formatDateTime(cart.heldAt)}</p></> : formatDateTime(cart.dispatchedAt)}</td>
                 <td><StatusBadge status={cart.status} /></td>
-                <td>{canOperate && cart.status === 'PREPARED' ? <button className="btn-primary" onClick={() => dispatch(cart)}><Send size={16} /> Dispatch</button> : <Truck size={18} className="text-slate-400" />}</td>
+                <td><div className="flex flex-wrap gap-2">
+                  {canOperate && ['PREPARED', 'READY_FOR_DISPATCH'].includes(cart.status) && <button className="btn-primary" onClick={() => dispatch(cart)}><Send size={16} /> Dispatch</button>}
+                  {canOperate && ['PREPARED', 'READY_FOR_DISPATCH'].includes(cart.status) && <button className="btn-secondary" onClick={() => hold(cart)}><Ban size={16} /> Hold</button>}
+                  {['BLANKING_SUPERVISOR', 'MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '') && cart.status === 'HELD' && <button className="btn-primary" onClick={() => release(cart)}><Unlock size={16} /> Release</button>}
+                  {!['PREPARED', 'READY_FOR_DISPATCH', 'HELD'].includes(cart.status) && <Truck size={18} className="text-slate-400" />}
+                </div></td>
               </tr>
             ))}</tbody>
           </table>

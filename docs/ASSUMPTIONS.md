@@ -14,6 +14,16 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
 - Each stage needs an IN time when processing starts and an OUT time when it
   completes. The prototype records both from the backend server clock to protect
   the audit history.
+- The final design will use only Lab `PASS` compound released from Mixing.
+  Temporarily, Blanking batch creation accepts a manually entered physical
+  Mixing batch number and compound code until the Lab workflow is introduced.
+- Blanking expected pieces are calculated from issued kilograms and average
+  blank grams. Actual used and remaining compound are recalculated by the
+  backend.
+- A held cart stays in Blanking and cannot be received by Moulding. Dispatch
+  and receipt identities/times come from the authenticated user and server.
+- Unused blanks are reserved at Moulding when a return is prepared and are not
+  restored to Blanking inventory until Blanking confirms physical receipt.
 
 ## Prototype assumptions
 
@@ -22,6 +32,8 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
 - Maximum planned batch quantity is 240 kg. The mentioned fill factor of 0.7 is stored in configuration but is not used to calculate allowed load.
 - A recipe revision is treated as approved when it becomes `ACTIVE`; `approvedBy` and approval time are captured where available.
 - Manager and System Administrator may temporarily record stores issues and laboratory results.
+- Manual Blanking source entry is explicitly a temporary prototype mode. A null
+  approved-stock reference identifies these records; no Lab `PASS` is inferred.
 - Release and reprocessing decisions are currently allowed for Manager and System Administrator.
 - Every batch uses a unique random traceability reference. No authentication or user secrets are encoded.
 - Quantities use decimal kilograms or the ingredient's explicitly selected unit.
@@ -32,8 +44,16 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
   in `Asia/Colombo`. After-midnight Shift C records belong to the previous
   production date.
 - Approved compound consumption is kilograms. Blanking output, cart contents,
-  press inventory, good tyres and rejects are integer item counts. The prototype
-  does not invent a kg-to-blank conversion.
+  press inventory, good tyres and rejects are integer item counts. Expected
+  blanks use the confirmed weight conversion `(issued kg × 1000) ÷ average blank
+  grams`; this is a weight-based planning value, not a compound-specific yield
+  guarantee.
+- If expected blank quantity is fractional, the exact decimal is retained and
+  shown. Only the whole-piece floor is used as the count; the UI warns about the
+  fractional remainder.
+- Actual used compound assumes the recorded average blank weight represents each
+  actual good/rejected blank included in the blank count. Rejected loose
+  material is entered separately in kilograms.
 - For Moulding reconciliation, each consumed blank becomes exactly one good
   tyre, rejected tyre, or rejected blank.
 - A cart has one intended press and one receipt. Only an authorized override
@@ -63,8 +83,8 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
 18. Does the written compound/batch notation always omit the `A-` prefix, or
     should printed digital labels show the full recipe code (for example,
     `A-96 × 6078`)?
-19. What is the confirmed relationship between compound kilograms and expected
-    blank count for each material or tyre size?
+19. Should expected-yield planning include a confirmed process-loss percentage
+    by compound/item in addition to the current weight-only calculation?
 20. Is one blank always consumed per tyre at every Moulding press, including
     startup/setup scrap?
 21. Are the proposed Shift A/B/C times correct, and how should public holidays,
@@ -84,3 +104,9 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
 29. When and how are reusable carts returned to Blanking?
 30. What production target, cycle time and expected next-material formula should
     drive press forecasts? The prototype uses only open request quantities.
+31. Must Blanking return variances use dual approval, and what piece/weight
+    tolerances allow automatic closure?
+32. Should confirmed unused blanks return to a reusable cart, loose Blanking
+    inventory, or a quarantine location?
+33. Is the entered average blank weight measured per batch, inherited from item
+    master data, or both with tolerance checking?

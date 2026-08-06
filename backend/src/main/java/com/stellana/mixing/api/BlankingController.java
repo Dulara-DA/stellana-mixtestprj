@@ -3,6 +3,8 @@ package com.stellana.mixing.api;
 import com.stellana.mixing.api.ApiModels.*;
 import com.stellana.mixing.service.ApprovedMaterialService;
 import com.stellana.mixing.service.BlankingService;
+import com.stellana.mixing.service.InventoryLedgerService;
+import com.stellana.mixing.service.BlankReturnService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,11 +18,28 @@ import java.util.List;
 public class BlankingController {
     private final ApprovedMaterialService approvedMaterialService;
     private final BlankingService blankingService;
+    private final InventoryLedgerService inventoryLedgerService;
+    private final BlankReturnService blankReturnService;
 
     @GetMapping("/approved-materials")
     @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
     public List<ApprovedMaterialBatchView> approvedMaterials() {
         return approvedMaterialService.list();
+    }
+
+    @GetMapping("/compound-stock")
+    @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public List<ApprovedMaterialBatchView> compoundStock() {
+        return approvedMaterialService.list();
+    }
+
+    @PatchMapping("/compound-stock/{id}/status")
+    @PreAuthorize("hasAnyRole('BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public ApprovedMaterialBatchView changeCompoundStockStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody CompoundStockStatusRequest request
+    ) {
+        return approvedMaterialService.changeStatus(id, request);
     }
 
     @GetMapping("/batches")
@@ -50,6 +69,15 @@ public class BlankingController {
         return blankingService.completeBatch(id, request);
     }
 
+    @PatchMapping("/batches/{id}/correct")
+    @PreAuthorize("hasAnyRole('BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public BlankingBatchView correctBatch(
+            @PathVariable Long id,
+            @Valid @RequestBody CorrectBlankingBatchRequest request
+    ) {
+        return blankingService.correctBatch(id, request);
+    }
+
     @GetMapping("/carts")
     @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MOULDING_OPERATOR',"
             + "'MOULDING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
@@ -70,5 +98,41 @@ public class BlankingController {
             @RequestBody(required = false) DispatchCartRequest request
     ) {
         return blankingService.dispatchCart(id, request == null ? new DispatchCartRequest(null) : request);
+    }
+
+    @PostMapping("/carts/{id}/hold")
+    @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','SYSTEM_ADMIN')")
+    public BlankingCartView holdCart(@PathVariable Long id, @Valid @RequestBody HoldCartRequest request) {
+        return blankingService.holdCart(id, request);
+    }
+
+    @PostMapping("/carts/{id}/release")
+    @PreAuthorize("hasAnyRole('BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public BlankingCartView releaseCart(
+            @PathVariable Long id,
+            @RequestBody(required = false) ReleaseCartRequest request
+    ) {
+        return blankingService.releaseCart(id, request == null ? new ReleaseCartRequest(null) : request);
+    }
+
+    @GetMapping("/inventory-transactions")
+    @PreAuthorize("hasAnyRole('BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public List<InventoryTransactionView> inventoryTransactions() {
+        return inventoryLedgerService.recent();
+    }
+
+    @GetMapping("/returns")
+    @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public List<BlankReturnView> returns() {
+        return blankReturnService.list();
+    }
+
+    @PostMapping("/returns/{id}/confirm")
+    @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','SYSTEM_ADMIN')")
+    public BlankReturnView confirmReturn(
+            @PathVariable Long id,
+            @Valid @RequestBody ConfirmBlankReturnRequest request
+    ) {
+        return blankReturnService.confirm(id, request);
     }
 }

@@ -1,6 +1,7 @@
 package com.stellana.mixing.service;
 
 import com.stellana.mixing.api.ApiModels.CreateUserRequest;
+import com.stellana.mixing.api.ApiModels.OperatorOptionView;
 import com.stellana.mixing.api.ApiModels.UserView;
 import com.stellana.mixing.domain.UserAccount;
 import com.stellana.mixing.domain.Role;
@@ -37,6 +38,17 @@ public class UserService {
         return userAccountRepository.findAllByRoleAndActiveTrue(Role.MIXING_OFFICER).stream()
                 .sorted(Comparator.comparing(UserAccount::getFullName))
                 .map(com.stellana.mixing.api.ApiMapper::user).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<OperatorOptionView> activeBlankingOperators() {
+        return userAccountRepository.findAll().stream()
+                .filter(UserAccount::isActive)
+                .filter(value -> value.getRole() == Role.BLANKING_OPERATOR
+                        || value.getRole() == Role.BLANKING_SUPERVISOR)
+                .sorted(Comparator.comparing(UserAccount::getFullName, String.CASE_INSENSITIVE_ORDER))
+                .map(value -> new OperatorOptionView(value.getEmployeeId(), value.getFullName()))
+                .toList();
     }
 
     @Transactional

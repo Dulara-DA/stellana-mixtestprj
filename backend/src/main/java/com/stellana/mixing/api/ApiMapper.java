@@ -2,6 +2,7 @@ package com.stellana.mixing.api;
 
 import com.stellana.mixing.domain.*;
 
+import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.List;
 
@@ -123,23 +124,49 @@ public final class ApiMapper {
                 value.getLabStatus(),
                 value.getApprovedQuantityKg(),
                 value.getAvailableQuantityKg(),
+                value.getPlannedQuantityKg() == null ? value.getApprovedQuantityKg() : value.getPlannedQuantityKg(),
+                value.getReceivedQuantityKg() == null ? value.getApprovedQuantityKg() : value.getReceivedQuantityKg(),
+                zero(value.getReservedQuantityKg()),
+                zero(value.getConsumedQuantityKg()),
+                zero(value.getReturnedQuantityKg()),
                 value.getApprovedAt(),
+                value.getReceivedAt() == null ? value.getApprovedAt() : value.getReceivedAt(),
+                user(value.getReceivingOperator()),
+                value.getStockStatus() == null ? CompoundStockStatus.AVAILABLE : value.getStockStatus(),
                 value.getNotes(),
-                value.isActive());
+                value.isActive(),
+                value.getUpdatedAt());
     }
 
     public static BlankingBatchView blankingBatch(BlankingBatch value) {
         return new BlankingBatchView(
                 value.getId(),
                 value.getBatchNumber(),
-                value.getApprovedMaterialBatch().getId(),
+                value.getApprovedMaterialBatch() == null ? null : value.getApprovedMaterialBatch().getId(),
                 value.getMixingBatchNumber(),
                 value.getMaterialCode(),
+                value.getItemCode(),
+                value.getMillOperator(),
+                value.getPreformerOperator(),
                 value.getMaterialConsumedKg(),
+                value.getAverageBlankWeightGrams(),
+                value.getExpectedBlankQuantity(),
+                value.getExpectedWholeBlankQuantity(),
                 value.getPlannedProductionQuantity(),
                 value.getProductionQuantity(),
+                actualGood(value),
                 value.getRejectedQuantity(),
+                zero(value.getRejectedMaterialWeightKg()),
+                zero(value.getActualUsedCompoundWeightKg()),
+                zero(value.getRemainingCompoundWeightKg()),
+                value.getProductionVariance() == null ? 0 : value.getProductionVariance(),
+                value.getExpectedBlankQuantity() != null
+                        && value.getExpectedBlankQuantity().stripTrailingZeros().scale() > 0,
+                value.isUnbalanced(),
+                value.getBalanceConfirmationReason(),
+                user(value.getBalanceConfirmedBy()),
                 value.getAvailableGoodBlankQuantity(),
+                Math.max(0, actualGood(value) - value.getAvailableGoodBlankQuantity()),
                 value.getProductionDate(),
                 value.getShift(),
                 value.getStartTime(),
@@ -160,15 +187,24 @@ public final class ApiMapper {
                 value.getBlankingBatch().getBatchNumber(),
                 value.getBlankingBatch().getMixingBatchNumber(),
                 value.getMaterialCode(),
+                value.getItemCode(),
                 value.getQuantity(),
                 value.getRemainingQuantity(),
+                value.getReturnedQuantity(),
+                value.getAverageBlankWeightGrams(),
+                value.getMaterialWeightKg(),
                 value.getCreatedAt(),
                 user(value.getCreatedBy()),
-                value.getDestinationPress().getId(),
-                value.getDestinationPress().getPressNumber(),
-                value.getDestinationPress().getPressName(),
+                value.getDestinationPress() == null ? null : value.getDestinationPress().getId(),
+                value.getDestinationPress() == null ? null : value.getDestinationPress().getPressNumber(),
+                value.getDestinationPress() == null ? null : value.getDestinationPress().getPressName(),
                 value.getDispatchedAt(),
                 user(value.getDispatchedBy()),
+                value.getHeldAt(),
+                user(value.getHeldBy()),
+                value.getHoldReason(),
+                value.getReleasedAt(),
+                user(value.getReleasedBy()),
                 value.getStatus(),
                 value.getBlankingNote());
     }
@@ -197,6 +233,7 @@ public final class ApiMapper {
     public static CartReceiptView cartReceipt(CartReceipt value) {
         return new CartReceiptView(
                 value.getId(),
+                value.getReceiptNumber(),
                 value.getCart().getId(),
                 value.getCart().getCartNumber(),
                 value.getCart().getBlankingBatch().getBatchNumber(),
@@ -229,6 +266,9 @@ public final class ApiMapper {
                 value.getCart().getCartNumber(),
                 value.getBlankingBatch().getId(),
                 value.getBlankingBatch().getBatchNumber(),
+                value.getBlankingBatch().getItemCode(),
+                value.getBlankingBatch().getMaterialCode(),
+                value.getBlankingBatch().getMixingBatchNumber(),
                 value.getQuantityReceived(),
                 value.getGoodTyreQuantity(),
                 value.getRejectedTyreQuantity(),
@@ -242,6 +282,57 @@ public final class ApiMapper {
                 value.getStatus(),
                 value.getCreatedAt(),
                 value.getUpdatedAt());
+    }
+
+    public static BlankReturnView blankReturn(BlankReturn value) {
+        return new BlankReturnView(
+                value.getId(),
+                value.getReturnNumber(),
+                value.getPress().getId(),
+                value.getPress().getPressNumber(),
+                value.getCart().getId(),
+                value.getCart().getCartNumber(),
+                value.getBlankingBatch().getId(),
+                value.getBlankingBatch().getBatchNumber(),
+                value.getCompoundCode(),
+                value.getCompoundBatchNumber(),
+                value.getItemCode(),
+                value.getPreparedQuantity(),
+                value.getMeasuredReturnWeightKg(),
+                value.getAverageBlankWeightGrams(),
+                value.getReturnReason(),
+                user(value.getSendingOperator()),
+                value.getSendingDateTime(),
+                value.getShift(),
+                value.getMouldingNote(),
+                user(value.getReceivingOperator()),
+                value.getReceivingDateTime(),
+                value.getReceivedQuantity(),
+                value.getReceivedWeightKg(),
+                value.getQuantityVariance(),
+                value.getWeightVarianceKg(),
+                value.getVarianceNote(),
+                value.getStatus(),
+                value.getCreatedAt(),
+                value.getUpdatedAt());
+    }
+
+    public static InventoryTransactionView inventoryTransaction(InventoryTransaction value) {
+        return new InventoryTransactionView(
+                value.getId(),
+                value.getTransactionType(),
+                value.getSourceSection(),
+                value.getDestinationSection(),
+                value.getSourceRecordType(),
+                value.getSourceRecordId(),
+                value.getDestinationRecordType(),
+                value.getDestinationRecordId(),
+                value.getQuantity(),
+                value.getUnit(),
+                value.getWeightKg(),
+                user(value.getActor()),
+                value.getTransactionTime(),
+                value.getReasonReference());
     }
 
     public static MaterialShortageRequestView shortageRequest(MaterialShortageRequest value) {
@@ -276,5 +367,19 @@ public final class ApiMapper {
                 value.getCreatedAt(),
                 value.getUpdatedAt(),
                 messages);
+    }
+
+    private static BigDecimal zero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private static int actualGood(BlankingBatch value) {
+        if (value.getActualGoodBlankQuantity() != null) {
+            return value.getActualGoodBlankQuantity();
+        }
+        if (value.getProductionQuantity() == null) {
+            return 0;
+        }
+        return Math.max(0, value.getProductionQuantity() - value.getRejectedQuantity());
     }
 }

@@ -40,6 +40,8 @@ public class DemoDataInitializer implements CommandLineRunner {
     private final CartReceiptRepository cartReceiptRepository;
     private final MouldingProductionRecordRepository mouldingRecordRepository;
     private final MaterialShortageRequestRepository shortageRequestRepository;
+    private final BlankReturnRepository blankReturnRepository;
+    private final InventoryTransactionRepository inventoryTransactionRepository;
     private final PasswordEncoder passwordEncoder;
     private final ShiftService shiftService;
 
@@ -268,14 +270,23 @@ public class DemoDataInitializer implements CommandLineRunner {
 
         Press press01 = ensurePress("PRESS-01", "Moulding Press 01");
         Press press02 = ensurePress("PRESS-02", "Moulding Press 02");
-        ensurePress("PRESS-03", "Moulding Press 03");
+        Press press03 = ensurePress("PRESS-03", "Moulding Press 03");
 
-        if (blankingBatchRepository.count() > 0) {
+        seedConfirmedFactoryWorkflow(
+                manager, admin, blankingOperator, mouldingOperator, press03);
+
+        if (blankingBatchRepository.existsByBatchNumberIgnoreCase("BLK-DEMO-001")) {
             return;
         }
 
         ProductionBatch releasedMixingBatch = batchRepository.findAllByOrderByCreatedAtDesc().stream()
                 .filter(batch -> batch.getLaboratoryStatus() == LabDecision.PASS)
+                .filter(batch -> !batch.getBatchNumber().equalsIgnoreCase("6160"))
+                .filter(batch -> {
+                    BigDecimal quantity = batch.getActualOutputQuantityKg() == null
+                            ? batch.getPlannedQuantityKg() : batch.getActualOutputQuantityKg();
+                    return quantity != null && quantity.compareTo(new BigDecimal("75.000")) >= 0;
+                })
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException(
                         "Demo downstream data requires one laboratory-passed Mixing batch."));
@@ -298,9 +309,17 @@ public class DemoDataInitializer implements CommandLineRunner {
                         .labStatus(LabDecision.PASS)
                         .approvedQuantityKg(approvedQuantity)
                         .availableQuantityKg(approvedQuantity)
+                        .plannedQuantityKg(approvedQuantity)
+                        .receivedQuantityKg(approvedQuantity)
+                        .reservedQuantityKg(BigDecimal.ZERO)
+                        .consumedQuantityKg(BigDecimal.ZERO)
+                        .returnedQuantityKg(BigDecimal.ZERO)
                         .approvedAt(approval != null && approval.getTestDateTime() != null
                                 ? approval.getTestDateTime()
                                 : LocalDateTime.now().minusHours(6))
+                        .receivedAt(LocalDateTime.now().minusHours(5))
+                        .receivingOperator(blankingOperator)
+                        .stockStatus(CompoundStockStatus.AVAILABLE)
                         .notes("Seeded approved batch linked to the existing Mixing and Lab records.")
                         .active(true)
                         .build()));
@@ -345,6 +364,8 @@ public class DemoDataInitializer implements CommandLineRunner {
                 .status(BlankingBatchStatus.PARTIALLY_DISPATCHED)
                 .build());
         approved.setAvailableQuantityKg(approvedQuantity.subtract(new BigDecimal("75.000")));
+        approved.setConsumedQuantityKg(new BigDecimal("75.000"));
+        approved.setStockStatus(CompoundStockStatus.PARTIALLY_USED);
         approvedMaterialBatchRepository.save(approved);
 
         BlankingCart dispatched = blankingCartRepository.save(BlankingCart.builder()
@@ -393,6 +414,7 @@ public class DemoDataInitializer implements CommandLineRunner {
                 .status(CartTransferStatus.RECEIVED)
                 .build());
         cartReceiptRepository.save(CartReceipt.builder()
+                .receiptNumber("RCT-DEMO-002")
                 .cart(received)
                 .receivedQuantity(30)
                 .productionDate(shift.productionDate())
@@ -479,6 +501,428 @@ public class DemoDataInitializer implements CommandLineRunner {
                 .newValue("Blanking and Moulding demonstration records created")
                 .actionTime(LocalDateTime.now())
                 .build());
+    }
+
+    /**
+     * Confirmed July factory examples. These records are deliberately demo data:
+     * the values exercise the verified arithmetic without becoming master-data
+     * rules or hard-coded application choices.
+     */
+    private void seedConfirmedFactoryWorkflow(
+            UserAccount manager,
+            UserAccount admin,
+            UserAccount blankingOperator,
+            UserAccount mouldingOperator,
+            Press press) {
+        if (blankingBatchRepository.existsByBatchNumberIgnoreCase("BLK-A96-6160")) {
+            return;
+        }
+
+        UserAccount mixingOfficer = requireUser("officer@stellana.local");
+        Recipe recipe = recipeRepository.findByRecipeCodeIgnoreCase("A-96-50")
+                .orElseGet(() -> recipeRepository.save(Recipe.builder()
+                        .recipeCode("A-96-50")
+                        .compoundName("A-96-50 Demonstration Compound")
+                        .build()));
+        RecipeRevision revision = revisionRepository
+                .findAllByRecipeIdAndStatus(recipe.getId(), RecipeStatus.ACTIVE)
+                .stream()
+                .findFirst()
+                .orElseGet(() -> {
+                    RecipeRevision created = RecipeRevision.builder()
+                            .recipe(recipe)
+                            .revisionNumber("1")
+                            .effectiveDate(LocalDate.now().minusDays(30))
+                            .status(RecipeStatus.ACTIVE)
+                            .createdBy(manager)
+                            .approvedBy(manager)
+                            .approvedAt(LocalDateTime.now().minusDays(30))
+                            .revisionNotes("Demonstration revision based on the confirmed A-96-50 sample; ingredient details remain TBC.")
+                            .build();
+                    created.addIngredient(ingredient(
+                            "A96-RM-01", "Stage 1 compound ingredients (demo group)",
+                            "55.000", "kg", 1, 1, "Exact ingredient split is TBC."));
+                    created.addIngredient(ingredient(
+                            "A96-RM-02", "Sulphur and Stage 2 chemicals (demo group)",
+                            "5.000", "kg", 2, 2, "Exact Stage 2 composition is TBC."));
+                    return revisionRepository.save(created);
+                });
+
+        ProductionBatch mixingBatch = batchRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(value -> value.getBatchNumber().equalsIgnoreCase("6160"))
+                .findFirst()
+                .orElseGet(() -> {
+                    ProductionBatch created = saveBatch(
+                            "6160", revision, mixingOfficer,
+                            BatchStatus.RELEASED_TO_BLANKING, 2, "Mixer A",
+                            "60.000", LabDecision.PASS, ReleaseStatus.APPROVED_FOR_BLANKING);
+                    created.setActualOutputQuantityKg(new BigDecimal("60.000"));
+                    batchRepository.save(created);
+                    seedCompletedStages(created, mixingOfficer);
+                    return created;
+                });
+        mixingBatch.setStatus(BatchStatus.RELEASED_TO_BLANKING);
+        mixingBatch.setLaboratoryStatus(LabDecision.PASS);
+        mixingBatch.setReleaseStatus(ReleaseStatus.APPROVED_FOR_BLANKING);
+        mixingBatch.setActualOutputQuantityKg(new BigDecimal("60.000"));
+        batchRepository.save(mixingBatch);
+
+        LabSample approval = sampleRepository
+                .findFirstByBatchIdOrderBySentToLabAtDesc(mixingBatch.getId())
+                .orElseGet(() -> sampleRepository.save(LabSample.builder()
+                        .sampleId("SMP-A96-6160")
+                        .batch(mixingBatch)
+                        .sentToLabAt(LocalDateTime.now().minusHours(12))
+                        .testDateTime(LocalDateTime.now().minusHours(11))
+                        .decision(LabDecision.PASS)
+                        .testedBy(manager)
+                        .managerApprovedBy(manager)
+                        .managerApprovedAt(LocalDateTime.now().minusHours(11))
+                        .comments("Demonstration PASS only; no laboratory limits are inferred.")
+                        .build()));
+
+        LocalDateTime now = shiftService.current().serverTime();
+        ApprovedMaterialBatch stock = approvedMaterialBatchRepository
+                .findByMixingBatchNumberIgnoreCase("6160")
+                .orElseGet(() -> approvedMaterialBatchRepository.save(ApprovedMaterialBatch.builder()
+                        .mixingBatch(mixingBatch)
+                        .labApproval(approval)
+                        .mixingBatchNumber("6160")
+                        .materialCode("A-96-50")
+                        .compoundName(recipe.getCompoundName())
+                        .labStatus(LabDecision.PASS)
+                        .approvedQuantityKg(new BigDecimal("60.000"))
+                        .availableQuantityKg(new BigDecimal("10.000"))
+                        .plannedQuantityKg(new BigDecimal("60.000"))
+                        .receivedQuantityKg(new BigDecimal("60.000"))
+                        .reservedQuantityKg(BigDecimal.ZERO)
+                        .consumedQuantityKg(new BigDecimal("50.000"))
+                        .returnedQuantityKg(new BigDecimal("10.000"))
+                        .approvedAt(now.minusHours(11))
+                        .receivedAt(now.minusHours(10))
+                        .receivingOperator(blankingOperator)
+                        .stockStatus(CompoundStockStatus.PARTIALLY_USED)
+                        .notes("Demo: 60 kg issued, 50 kg converted into blanks, 10 kg returned.")
+                        .active(true)
+                        .build()));
+
+        ShiftService.ShiftContext shift = shiftService.current();
+        BlankingBatch blankingBatch = blankingBatchRepository.save(BlankingBatch.builder()
+                .batchNumber("BLK-A96-6160")
+                .approvedMaterialBatch(stock)
+                .mixingBatchNumber("6160")
+                .materialCode("A-96-50")
+                .itemCode("UG 200×50")
+                .millOperator("Mill Operator Demo")
+                .preformerOperator("Preformer Operator Demo")
+                .materialConsumedKg(new BigDecimal("60.000"))
+                .plannedProductionQuantity(600)
+                .averageBlankWeightGrams(new BigDecimal("100.000"))
+                .expectedBlankQuantity(new BigDecimal("600.000000"))
+                .expectedWholeBlankQuantity(600)
+                .productionQuantity(500)
+                .actualGoodBlankQuantity(500)
+                .rejectedQuantity(0)
+                .rejectedMaterialWeightKg(BigDecimal.ZERO)
+                .actualUsedCompoundWeightKg(new BigDecimal("50.000"))
+                .remainingCompoundWeightKg(new BigDecimal("10.000"))
+                .productionVariance(-100)
+                .unbalanced(false)
+                .availableGoodBlankQuantity(170)
+                .productionDate(shift.productionDate())
+                .shift(shift.shift())
+                .startTime(now.minusHours(9))
+                .endTime(now.minusHours(8))
+                .operator(blankingOperator)
+                .operatorEmployeeId(blankingOperator.getEmployeeId())
+                .notes("Confirmed demo arithmetic: 60 kg / 100 g = 600 expected; 500 actual = 50 kg used; 10 kg returned.")
+                .status(BlankingBatchStatus.PARTIALLY_DISPATCHED)
+                .build());
+
+        BlankingCart prepared = saveConfirmedCart(
+                "CART-A96-PREP", blankingBatch, press, blankingOperator,
+                50, 50, 0, BlankingCartStatus.PREPARED,
+                "Prepared cart waiting for a controlled dispatch decision.", null, null, now);
+        BlankingCart held = saveConfirmedCart(
+                "CART-A96-HOLD", blankingBatch, press, blankingOperator,
+                50, 50, 0, BlankingCartStatus.HELD,
+                "Held sample cart.", "Identification confirmation pending.", blankingOperator, now);
+        BlankingCart dispatched = saveConfirmedCart(
+                "CART-A96-DISP", blankingBatch, press, blankingOperator,
+                50, 50, 0, BlankingCartStatus.DISPATCHED,
+                "Dispatched sample cart.", null, null, now);
+        dispatched.setDispatchedAt(now.minusMinutes(80));
+        dispatched.setDispatchedBy(blankingOperator);
+        blankingCartRepository.save(dispatched);
+        saveTransfer(dispatched, press, blankingOperator, CartTransferStatus.DISPATCHED);
+
+        BlankingCart received = saveConfirmedCart(
+                "CART-A96-RECV", blankingBatch, press, blankingOperator,
+                50, 50, 0, BlankingCartStatus.RECEIVED_AT_MOULDING,
+                "Received sample cart with no production entry yet.", null, null, now);
+        received.setDispatchedAt(now.minusMinutes(70));
+        received.setDispatchedBy(blankingOperator);
+        blankingCartRepository.save(received);
+        saveTransfer(received, press, blankingOperator, CartTransferStatus.RECEIVED);
+        saveReceipt("RCT-A96-RECV", received, press, blankingOperator, mouldingOperator, now.minusMinutes(60));
+
+        BlankingCart pendingReturnCart = saveConfirmedCart(
+                "CART-A96-RET-PENDING", blankingBatch, press, blankingOperator,
+                50, 0, 10, BlankingCartStatus.RETURN_PENDING,
+                "Ten unused blanks are awaiting Blanking confirmation.", null, null, now);
+        pendingReturnCart.setDispatchedAt(now.minusHours(3));
+        pendingReturnCart.setDispatchedBy(blankingOperator);
+        blankingCartRepository.save(pendingReturnCart);
+        saveTransfer(pendingReturnCart, press, blankingOperator, CartTransferStatus.RECEIVED);
+        saveReceipt("RCT-A96-RET-P", pendingReturnCart, press, blankingOperator, mouldingOperator, now.minusHours(2));
+        mouldingRecordRepository.save(MouldingProductionRecord.builder()
+                .press(press)
+                .productionDate(shift.productionDate())
+                .shift(shift.shift())
+                .startTime(now.minusHours(2))
+                .endTime(now.minusHours(1).minusMinutes(30))
+                .operator(mouldingOperator)
+                .operatorEmployeeId(mouldingOperator.getEmployeeId())
+                .cart(pendingReturnCart)
+                .blankingBatch(blankingBatch)
+                .quantityReceived(50)
+                .goodTyreQuantity(40)
+                .rejectedTyreQuantity(0)
+                .rejectedTyreWeightPerItemGrams(BigDecimal.ZERO)
+                .totalRejectedTyreWeightGrams(BigDecimal.ZERO)
+                .rejectedBlankQuantity(0)
+                .remainingBlankQuantity(10)
+                .downtimeMinutes(0)
+                .operatorNote("Demo partial use; remaining ten pieces reserved for return.")
+                .status(MouldingRecordStatus.COMPLETED)
+                .build());
+        BlankReturn pendingReturn = blankReturnRepository.save(BlankReturn.builder()
+                .returnNumber("RET-A96-PENDING")
+                .press(press)
+                .cart(pendingReturnCart)
+                .blankingBatch(blankingBatch)
+                .compoundCode("A-96-50")
+                .compoundBatchNumber("6160")
+                .itemCode("UG 200×50")
+                .preparedQuantity(10)
+                .measuredReturnWeightKg(new BigDecimal("1.000"))
+                .averageBlankWeightGrams(new BigDecimal("100.000"))
+                .returnReason("Production plan changed.")
+                .sendingOperator(mouldingOperator)
+                .sendingDateTime(now.minusMinutes(75))
+                .shift(shift.shift())
+                .mouldingNote("Pending physical verification by Blanking.")
+                .status(BlankReturnStatus.AWAITING_CONFIRMATION)
+                .build());
+
+        BlankingCart completedReturnCart = saveConfirmedCart(
+                "CART-A96-RET-CLOSED", blankingBatch, press, blankingOperator,
+                100, 20, 20, BlankingCartStatus.RETURNED_TO_BLANKING,
+                "Completed return example.", null, null, now);
+        completedReturnCart.setDispatchedAt(now.minusHours(5));
+        completedReturnCart.setDispatchedBy(blankingOperator);
+        blankingCartRepository.save(completedReturnCart);
+        saveTransfer(completedReturnCart, press, blankingOperator, CartTransferStatus.RECEIVED);
+        saveReceipt("RCT-A96-RET-C", completedReturnCart, press, blankingOperator, mouldingOperator, now.minusHours(4));
+        mouldingRecordRepository.save(MouldingProductionRecord.builder()
+                .press(press)
+                .productionDate(shift.productionDate())
+                .shift(shift.shift())
+                .startTime(now.minusHours(4))
+                .endTime(now.minusHours(3))
+                .operator(mouldingOperator)
+                .operatorEmployeeId(mouldingOperator.getEmployeeId())
+                .cart(completedReturnCart)
+                .blankingBatch(blankingBatch)
+                .quantityReceived(100)
+                .goodTyreQuantity(75)
+                .rejectedTyreQuantity(5)
+                .rejectedTyreWeightPerItemGrams(new BigDecimal("100.000"))
+                .totalRejectedTyreWeightGrams(new BigDecimal("500.000"))
+                .rejectedBlankQuantity(0)
+                .remainingBlankQuantity(20)
+                .downtimeMinutes(5)
+                .downtimeReason("Demonstration check.")
+                .operatorNote("Demo: five rejected tyres × 100 g = 500 g.")
+                .status(MouldingRecordStatus.COMPLETED)
+                .build());
+        BlankReturn completedReturn = blankReturnRepository.save(BlankReturn.builder()
+                .returnNumber("RET-A96-CLOSED")
+                .press(press)
+                .cart(completedReturnCart)
+                .blankingBatch(blankingBatch)
+                .compoundCode("A-96-50")
+                .compoundBatchNumber("6160")
+                .itemCode("UG 200×50")
+                .preparedQuantity(20)
+                .measuredReturnWeightKg(new BigDecimal("2.000"))
+                .averageBlankWeightGrams(new BigDecimal("100.000"))
+                .returnReason("Production order completed.")
+                .sendingOperator(mouldingOperator)
+                .sendingDateTime(now.minusHours(2).minusMinutes(45))
+                .shift(shift.shift())
+                .mouldingNote("Unused blanks returned.")
+                .receivingOperator(blankingOperator)
+                .receivingDateTime(now.minusHours(2))
+                .receivedQuantity(20)
+                .receivedWeightKg(new BigDecimal("2.000"))
+                .quantityVariance(0)
+                .weightVarianceKg(BigDecimal.ZERO)
+                .varianceNote("No variance.")
+                .status(BlankReturnStatus.CLOSED)
+                .build());
+
+        press.setAvailableBlankQuantity(press.getAvailableBlankQuantity() + 50);
+        press.setGoodTyreQuantity(press.getGoodTyreQuantity() + 115);
+        press.setRejectedTyreQuantity(press.getRejectedTyreQuantity() + 5);
+        press.setCurrentOperator(mouldingOperator);
+        press.setCurrentBlankingBatch(blankingBatch);
+        press.setStatus(PressStatus.IDLE);
+        press.setLastActivityAt(now.minusMinutes(30));
+        pressRepository.save(press);
+
+        inventoryTransactionRepository.saveAll(List.of(
+                transaction(InventoryTransactionType.COMPOUND_RECEIVED, ProductionSection.MIXING,
+                        ProductionSection.BLANKING, "ProductionBatch", mixingBatch.getId(),
+                        "ApprovedMaterialBatch", stock.getId(), "60.000", "kg", "60.000", blankingOperator,
+                        "Demo stock receipt for batch 6160.", now.minusHours(10)),
+                transaction(InventoryTransactionType.COMPOUND_CONSUMED, ProductionSection.BLANKING,
+                        ProductionSection.BLANKING, "ApprovedMaterialBatch", stock.getId(),
+                        "BlankingBatch", blankingBatch.getId(), "50.000", "kg", "50.000", blankingOperator,
+                        "500 blanks × 100 g.", now.minusHours(8)),
+                transaction(InventoryTransactionType.COMPOUND_RETURNED, ProductionSection.BLANKING,
+                        ProductionSection.BLANKING, "BlankingBatch", blankingBatch.getId(),
+                        "ApprovedMaterialBatch", stock.getId(), "10.000", "kg", "10.000", blankingOperator,
+                        "Unused compound returned.", now.minusHours(8)),
+                transaction(InventoryTransactionType.BLANKS_PRODUCED, ProductionSection.BLANKING,
+                        ProductionSection.BLANKING, "BlankingBatch", blankingBatch.getId(),
+                        "BlankingBatch", blankingBatch.getId(), "500", "pieces", "50.000", blankingOperator,
+                        "Confirmed demo output.", now.minusHours(8)),
+                transaction(InventoryTransactionType.RETURN_RESERVED, ProductionSection.MOULDING,
+                        ProductionSection.BLANKING, "BlankingCart", pendingReturnCart.getId(),
+                        "BlankReturn", pendingReturn.getId(), "10", "pieces", "1.000", mouldingOperator,
+                        pendingReturn.getReturnNumber(), now.minusMinutes(75)),
+                transaction(InventoryTransactionType.RETURN_CONFIRMED, ProductionSection.MOULDING,
+                        ProductionSection.BLANKING, "BlankReturn", completedReturn.getId(),
+                        "BlankingBatch", blankingBatch.getId(), "20", "pieces", "2.000", blankingOperator,
+                        completedReturn.getReturnNumber(), now.minusHours(2))
+        ));
+
+        auditLogRepository.save(AuditLog.builder()
+                .actor(admin)
+                .action("INITIALIZE_CONFIRMED_FACTORY_DEMO")
+                .entityType("BlankingBatch")
+                .entityId(blankingBatch.getId())
+                .relatedBatchId(mixingBatch.getId())
+                .previousValue(null)
+                .newValue("A-96-50 / 6160 vertical-flow demonstration created")
+                .actionTime(now)
+                .build());
+    }
+
+    private BlankingCart saveConfirmedCart(
+            String cartNumber,
+            BlankingBatch batch,
+            Press press,
+            UserAccount creator,
+            int quantity,
+            int remainingQuantity,
+            int returnedQuantity,
+            BlankingCartStatus status,
+            String note,
+            String holdReason,
+            UserAccount heldBy,
+            LocalDateTime now) {
+        return blankingCartRepository.save(BlankingCart.builder()
+                .cartNumber(cartNumber)
+                .blankingBatch(batch)
+                .materialCode(batch.getMaterialCode())
+                .mixingBatchNumber(batch.getMixingBatchNumber())
+                .itemCode(batch.getItemCode())
+                .quantity(quantity)
+                .remainingQuantity(remainingQuantity)
+                .returnedQuantity(returnedQuantity)
+                .averageBlankWeightGrams(new BigDecimal("100.000"))
+                .materialWeightKg(BigDecimal.valueOf(quantity).multiply(new BigDecimal("0.100")))
+                .createdBy(creator)
+                .destinationPress(press)
+                .heldAt(holdReason == null ? null : now.minusHours(2))
+                .heldBy(heldBy)
+                .holdReason(holdReason)
+                .status(status)
+                .blankingNote(note)
+                .build());
+    }
+
+    private void saveTransfer(
+            BlankingCart cart,
+            Press press,
+            UserAccount dispatchingOperator,
+            CartTransferStatus status) {
+        cartTransferRepository.save(CartTransfer.builder()
+                .cart(cart)
+                .fromSection(ProductionSection.BLANKING)
+                .destinationPress(press)
+                .quantity(cart.getQuantity())
+                .dispatchedBy(dispatchingOperator)
+                .dispatchedAt(cart.getDispatchedAt())
+                .status(status)
+                .build());
+    }
+
+    private void saveReceipt(
+            String receiptNumber,
+            BlankingCart cart,
+            Press press,
+            UserAccount sendingOperator,
+            UserAccount receivingOperator,
+            LocalDateTime receivedAt) {
+        ShiftService.ShiftContext receiptShift = shiftService.calculate(receivedAt);
+        cartReceiptRepository.save(CartReceipt.builder()
+                .receiptNumber(receiptNumber)
+                .cart(cart)
+                .receivedQuantity(cart.getQuantity())
+                .productionDate(receiptShift.productionDate())
+                .shift(receiptShift.shift())
+                .receivedAt(receivedAt)
+                .receivingOperator(receivingOperator)
+                .receivingOperatorEmployeeId(receivingOperator.getEmployeeId())
+                .press(press)
+                .sendingOperator(sendingOperator)
+                .dispatchTime(cart.getDispatchedAt())
+                .receiptStatus(CartReceiptStatus.RECEIVED)
+                .build());
+    }
+
+    private InventoryTransaction transaction(
+            InventoryTransactionType type,
+            ProductionSection sourceSection,
+            ProductionSection destinationSection,
+            String sourceType,
+            Long sourceId,
+            String destinationType,
+            Long destinationId,
+            String quantity,
+            String unit,
+            String weightKg,
+            UserAccount actor,
+            String reason,
+            LocalDateTime time) {
+        return InventoryTransaction.builder()
+                .transactionType(type)
+                .sourceSection(sourceSection)
+                .destinationSection(destinationSection)
+                .sourceRecordType(sourceType)
+                .sourceRecordId(sourceId)
+                .destinationRecordType(destinationType)
+                .destinationRecordId(destinationId)
+                .quantity(new BigDecimal(quantity))
+                .unit(unit)
+                .weightKg(new BigDecimal(weightKg))
+                .actor(actor)
+                .transactionTime(time)
+                .reasonReference(reason)
+                .build();
     }
 
     private UserAccount ensureUser(String fullName, String employeeId, String email,

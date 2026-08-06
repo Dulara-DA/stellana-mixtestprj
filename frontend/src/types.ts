@@ -18,6 +18,11 @@ export interface User {
   active: boolean
 }
 
+export interface OperatorOption {
+  employeeId: string
+  fullName: string
+}
+
 export interface Ingredient {
   id: number
   materialCode: string
@@ -239,9 +244,18 @@ export interface ApprovedMaterialBatch {
   labStatus: 'PENDING' | 'PASS' | 'FAIL' | 'HOLD' | 'RETEST'
   approvedQuantityKg: number
   availableQuantityKg: number
+  plannedQuantityKg: number
+  receivedQuantityKg: number
+  reservedQuantityKg: number
+  consumedQuantityKg: number
+  returnedQuantityKg: number
   approvedAt: string
+  receivedAt: string
+  receivingOperator?: User
+  stockStatus: 'AWAITING_RECEIPT' | 'AVAILABLE' | 'PARTIALLY_USED' | 'DEPLETED' | 'ON_HOLD' | 'REJECTED'
   notes?: string
   active: boolean
+  lastUpdatedAt: string
 }
 
 export type BlankingBatchStatus =
@@ -255,14 +269,30 @@ export type BlankingBatchStatus =
 export interface BlankingBatch {
   id: number
   batchNumber: string
-  approvedMaterialBatchId: number
+  approvedMaterialBatchId?: number
   mixingBatchNumber: string
   materialCode: string
+  itemCode?: string
+  millOperator?: string
+  preformerOperator?: string
   materialConsumedKg: number
+  averageBlankWeightGrams?: number
+  expectedBlankQuantity?: number
+  expectedWholeBlankQuantity?: number
   plannedProductionQuantity: number
   productionQuantity?: number
+  actualGoodBlankQuantity: number
   rejectedQuantity: number
+  rejectedMaterialWeightKg: number
+  actualUsedCompoundWeightKg: number
+  remainingCompoundWeightKg: number
+  productionVariance: number
+  fractionalExpectedQuantity: boolean
+  unbalanced: boolean
+  balanceConfirmationReason?: string
+  balanceConfirmedBy?: User
   availableGoodBlankQuantity: number
+  assignedToCartsQuantity: number
   productionDate: string
   shift: ProductionShift
   startTime?: string
@@ -277,10 +307,16 @@ export interface BlankingBatch {
 
 export type BlankingCartStatus =
   | 'PREPARED'
+  | 'HELD'
+  | 'READY_FOR_DISPATCH'
   | 'DISPATCHED'
   | 'RECEIVED_AT_MOULDING'
+  | 'IN_USE'
   | 'PARTIALLY_CONSUMED'
   | 'FULLY_CONSUMED'
+  | 'RETURN_PENDING'
+  | 'RETURNED_TO_BLANKING'
+  | 'CLOSED'
 
 export interface BlankingCart {
   id: number
@@ -289,8 +325,12 @@ export interface BlankingCart {
   blankingBatchNumber: string
   mixingBatchNumber: string
   materialCode: string
+  itemCode?: string
   quantity: number
   remainingQuantity: number
+  returnedQuantity: number
+  averageBlankWeightGrams?: number
+  materialWeightKg?: number
   createdAt: string
   createdBy: User
   destinationPressId: number
@@ -298,6 +338,11 @@ export interface BlankingCart {
   destinationPressName: string
   dispatchedAt?: string
   dispatchedBy?: User
+  heldAt?: string
+  heldBy?: User
+  holdReason?: string
+  releasedAt?: string
+  releasedBy?: User
   status: BlankingCartStatus
   blankingNote?: string
 }
@@ -325,6 +370,7 @@ export interface Press {
 
 export interface CartReceipt {
   id: number
+  receiptNumber?: string
   cartId: number
   cartNumber: string
   blankingBatchNumber: string
@@ -356,6 +402,9 @@ export interface MouldingProductionRecord {
   cartNumber: string
   blankingBatchId: number
   blankingBatchNumber: string
+  itemCode?: string
+  compoundCode: string
+  compoundBatchNumber: string
   quantityReceived: number
   goodTyreQuantity: number
   rejectedTyreQuantity: number
@@ -369,6 +418,73 @@ export interface MouldingProductionRecord {
   status: 'IN_PROGRESS' | 'COMPLETED'
   createdAt: string
   updatedAt: string
+}
+
+export type BlankReturnStatus =
+  | 'RETURN_PREPARED'
+  | 'SENT_TO_BLANKING'
+  | 'AWAITING_CONFIRMATION'
+  | 'RECEIVED_BY_BLANKING'
+  | 'QUANTITY_DISPUTED'
+  | 'CLOSED'
+
+export interface BlankReturn {
+  id: number
+  returnNumber: string
+  pressId: number
+  pressNumber: string
+  cartId: number
+  cartNumber: string
+  blankingBatchId: number
+  blankingBatchNumber: string
+  compoundCode: string
+  compoundBatchNumber: string
+  itemCode?: string
+  preparedQuantity: number
+  measuredReturnWeightKg: number
+  averageBlankWeightGrams: number
+  returnReason: string
+  sendingOperator: User
+  sendingDateTime: string
+  shift: ProductionShift
+  mouldingNote?: string
+  receivingOperator?: User
+  receivingDateTime?: string
+  receivedQuantity?: number
+  receivedWeightKg?: number
+  quantityVariance?: number
+  weightVarianceKg?: number
+  varianceNote?: string
+  status: BlankReturnStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface InventoryTransaction {
+  id: number
+  transactionType: string
+  sourceSection?: string
+  destinationSection?: string
+  sourceRecordType?: string
+  sourceRecordId?: number
+  destinationRecordType?: string
+  destinationRecordId?: number
+  quantity: number
+  unit: string
+  weightKg?: number
+  actor: User
+  transactionTime: string
+  reasonReference?: string
+}
+
+export interface ProductionGenealogy {
+  compoundStock: ApprovedMaterialBatch
+  blankingBatches: BlankingBatch[]
+  carts: BlankingCart[]
+  receipts: CartReceipt[]
+  productionRecords: MouldingProductionRecord[]
+  returns: BlankReturn[]
+  inventoryTransactions: InventoryTransaction[]
 }
 
 export type ShortageStatus =
@@ -415,6 +531,25 @@ export interface ProductionManagerSummary {
   fromDate: string
   toDate: string
   shift?: ProductionShift
+  compoundRequiredKg: number
+  compoundReceivedKg: number
+  compoundUsedKg: number
+  compoundAvailableKg: number
+  expectedBlankQuantity: number
+  actualGoodBlankQuantity: number
+  blankingProductionVariance: number
+  blankingRejectedQuantity: number
+  blankingRejectedWeightKg: number
+  cartsPrepared: number
+  cartsHeld: number
+  cartsDispatched: number
+  cartsReceived: number
+  cartsReturned: number
+  returnedBlankQuantity: number
+  averageCartTransferMinutes: number
+  returnedBlankWeightKg: number
+  returnVariances: number
+  unbalancedRecords: number
   blankingBatchesProduced: number
   blanksProduced: number
   blanksDispatched: number
