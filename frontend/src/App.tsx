@@ -8,6 +8,8 @@ import { BatchesPage } from './pages/BatchesPage'
 import { BlankingBatchesPage } from './pages/BlankingBatchesPage'
 import { BlankingCartsPage } from './pages/BlankingCartsPage'
 import { BlankingDashboardPage } from './pages/BlankingDashboardPage'
+import { BlankReturnsPage } from './pages/BlankReturnsPage'
+import { CompoundStockPage } from './pages/CompoundStockPage'
 import { CreateBatchPage } from './pages/CreateBatchPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { LabPage } from './pages/LabPage'
@@ -18,6 +20,7 @@ import { MouldingDashboardPage } from './pages/MouldingDashboardPage'
 import { MouldingProductionPage } from './pages/MouldingProductionPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { ProductionManagerPage } from './pages/ProductionManagerPage'
+import { ReceivingHistoryPage } from './pages/ReceivingHistoryPage'
 import { RecipeCreatePage } from './pages/RecipeCreatePage'
 import { RecipeDetailsPage } from './pages/RecipeDetailsPage'
 import { RecipesPage } from './pages/RecipesPage'
@@ -72,11 +75,15 @@ export default function App() {
         <Route path="/notifications" element={<RequireRoles roles={mixing}><NotificationsPage /></RequireRoles>} />
 
         <Route path="/blanking" element={<RequireRoles roles={blanking}><BlankingDashboardPage /></RequireRoles>} />
+        <Route path="/blanking/stock" element={<RequireRoles roles={blanking}><CompoundStockPage /></RequireRoles>} />
         <Route path="/blanking/batches" element={<RequireRoles roles={blanking}><BlankingBatchesPage /></RequireRoles>} />
         <Route path="/blanking/carts" element={<RequireRoles roles={blanking}><BlankingCartsPage /></RequireRoles>} />
+        <Route path="/blanking/returns" element={<RequireRoles roles={downstream}><BlankReturnsPage /></RequireRoles>} />
         <Route path="/blanking/moulding" element={<RequireRoles roles={blanking}><MouldingDashboardPage /></RequireRoles>} />
         <Route path="/moulding" element={<RequireRoles roles={moulding}><MouldingDashboardPage /></RequireRoles>} />
         <Route path="/moulding/production" element={<RequireRoles roles={moulding}><MouldingProductionPage /></RequireRoles>} />
+        <Route path="/moulding/receipts" element={<RequireRoles roles={moulding}><ReceivingHistoryPage /></RequireRoles>} />
+        <Route path="/moulding/returns" element={<RequireRoles roles={downstream}><BlankReturnsPage /></RequireRoles>} />
         <Route path="/shortages" element={<RequireRoles roles={downstream}><ShortagesPage /></RequireRoles>} />
         <Route path="/production-manager" element={<RequireRoles roles={management}><ProductionManagerPage /></RequireRoles>} />
 

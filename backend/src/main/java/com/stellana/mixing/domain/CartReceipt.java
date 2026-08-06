@@ -26,6 +26,9 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CartReceipt extends BaseEntity {
+    @Column(unique = true)
+    private String receiptNumber;
+
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "cart_id", nullable = false, unique = true)
     private BlankingCart cart;

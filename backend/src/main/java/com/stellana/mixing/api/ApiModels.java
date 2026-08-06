@@ -29,6 +29,11 @@ public final class ApiModels {
             boolean active
     ) {}
 
+    public record OperatorOptionView(
+            String employeeId,
+            String fullName
+    ) {}
+
     public record CreateUserRequest(
             @NotBlank String fullName,
             @NotBlank String employeeId,
@@ -412,16 +417,36 @@ public final class ApiModels {
             LabDecision labStatus,
             BigDecimal approvedQuantityKg,
             BigDecimal availableQuantityKg,
+            BigDecimal plannedQuantityKg,
+            BigDecimal receivedQuantityKg,
+            BigDecimal reservedQuantityKg,
+            BigDecimal consumedQuantityKg,
+            BigDecimal returnedQuantityKg,
             LocalDateTime approvedAt,
+            LocalDateTime receivedAt,
+            UserView receivingOperator,
+            CompoundStockStatus stockStatus,
             String notes,
-            boolean active
+            boolean active,
+            LocalDateTime lastUpdatedAt
+    ) {}
+
+    public record CompoundStockStatusRequest(
+            @NotNull CompoundStockStatus status,
+            @NotBlank String reason
     ) {}
 
     public record CreateBlankingBatchRequest(
             @NotBlank String batchNumber,
-            @NotNull Long approvedMaterialBatchId,
+            Long approvedMaterialBatchId,
+            String mixingBatchNumber,
+            String materialCode,
             @NotNull @DecimalMin("0.001") BigDecimal materialConsumedKg,
             @NotNull @Min(1) Integer plannedProductionQuantity,
+            String itemCode,
+            String millOperator,
+            String preformerOperator,
+            @DecimalMin("0.001") BigDecimal averageBlankWeightGrams,
             String notes,
             Boolean startImmediately
     ) {}
@@ -429,7 +454,20 @@ public final class ApiModels {
     public record CompleteBlankingBatchRequest(
             @NotNull @Min(1) Integer productionQuantity,
             @NotNull @Min(0) Integer rejectedQuantity,
+            @Min(0) Integer actualGoodBlankQuantity,
+            @DecimalMin("0.000") BigDecimal rejectedMaterialWeightKg,
+            @DecimalMin("0.000") BigDecimal measuredRemainingCompoundWeightKg,
+            Boolean supervisorConfirmation,
+            String balanceConfirmationReason,
             String notes
+    ) {}
+
+    public record CorrectBlankingBatchRequest(
+            @NotNull @Min(0) Integer actualGoodBlankQuantity,
+            @NotNull @Min(0) Integer rejectedQuantity,
+            @NotNull @DecimalMin("0.000") BigDecimal rejectedMaterialWeightKg,
+            @NotNull @DecimalMin("0.000") BigDecimal measuredRemainingCompoundWeightKg,
+            @NotBlank String reason
     ) {}
 
     public record BlankingBatchView(
@@ -438,11 +476,27 @@ public final class ApiModels {
             Long approvedMaterialBatchId,
             String mixingBatchNumber,
             String materialCode,
+            String itemCode,
+            String millOperator,
+            String preformerOperator,
             BigDecimal materialConsumedKg,
+            BigDecimal averageBlankWeightGrams,
+            BigDecimal expectedBlankQuantity,
+            Integer expectedWholeBlankQuantity,
             Integer plannedProductionQuantity,
             Integer productionQuantity,
+            Integer actualGoodBlankQuantity,
             Integer rejectedQuantity,
+            BigDecimal rejectedMaterialWeightKg,
+            BigDecimal actualUsedCompoundWeightKg,
+            BigDecimal remainingCompoundWeightKg,
+            Integer productionVariance,
+            boolean fractionalExpectedQuantity,
+            boolean unbalanced,
+            String balanceConfirmationReason,
+            UserView balanceConfirmedBy,
             Integer availableGoodBlankQuantity,
+            Integer assignedToCartsQuantity,
             LocalDate productionDate,
             ProductionShift shift,
             LocalDateTime startTime,
@@ -465,6 +519,8 @@ public final class ApiModels {
     ) {}
 
     public record DispatchCartRequest(String note) {}
+    public record HoldCartRequest(@NotBlank String reason) {}
+    public record ReleaseCartRequest(String note) {}
 
     public record BlankingCartView(
             Long id,
@@ -473,8 +529,12 @@ public final class ApiModels {
             String blankingBatchNumber,
             String mixingBatchNumber,
             String materialCode,
+            String itemCode,
             Integer quantity,
             Integer remainingQuantity,
+            Integer returnedQuantity,
+            BigDecimal averageBlankWeightGrams,
+            BigDecimal materialWeightKg,
             LocalDateTime createdAt,
             UserView createdBy,
             Long destinationPressId,
@@ -482,6 +542,11 @@ public final class ApiModels {
             String destinationPressName,
             LocalDateTime dispatchedAt,
             UserView dispatchedBy,
+            LocalDateTime heldAt,
+            UserView heldBy,
+            String holdReason,
+            LocalDateTime releasedAt,
+            UserView releasedBy,
             BlankingCartStatus status,
             String blankingNote
     ) {}
@@ -518,6 +583,7 @@ public final class ApiModels {
 
     public record CartReceiptView(
             Long id,
+            String receiptNumber,
             Long cartId,
             String cartNumber,
             String blankingBatchNumber,
@@ -575,6 +641,9 @@ public final class ApiModels {
             String cartNumber,
             Long blankingBatchId,
             String blankingBatchNumber,
+            String itemCode,
+            String compoundCode,
+            String compoundBatchNumber,
             Integer quantityReceived,
             Integer goodTyreQuantity,
             Integer rejectedTyreQuantity,
@@ -588,6 +657,80 @@ public final class ApiModels {
             MouldingRecordStatus status,
             LocalDateTime createdAt,
             LocalDateTime updatedAt
+    ) {}
+
+    public record CreateBlankReturnRequest(
+            @NotNull Long cartId,
+            @NotNull Long pressId,
+            @NotNull @Min(1) Integer quantity,
+            @NotNull @DecimalMin("0.000") BigDecimal measuredReturnWeightKg,
+            @NotBlank String returnReason,
+            String mouldingNote
+    ) {}
+
+    public record ConfirmBlankReturnRequest(
+            @NotNull @Min(0) Integer receivedQuantity,
+            @NotNull @DecimalMin("0.000") BigDecimal receivedWeightKg,
+            String varianceNote
+    ) {}
+
+    public record BlankReturnView(
+            Long id,
+            String returnNumber,
+            Long pressId,
+            String pressNumber,
+            Long cartId,
+            String cartNumber,
+            Long blankingBatchId,
+            String blankingBatchNumber,
+            String compoundCode,
+            String compoundBatchNumber,
+            String itemCode,
+            Integer preparedQuantity,
+            BigDecimal measuredReturnWeightKg,
+            BigDecimal averageBlankWeightGrams,
+            String returnReason,
+            UserView sendingOperator,
+            LocalDateTime sendingDateTime,
+            ProductionShift shift,
+            String mouldingNote,
+            UserView receivingOperator,
+            LocalDateTime receivingDateTime,
+            Integer receivedQuantity,
+            BigDecimal receivedWeightKg,
+            Integer quantityVariance,
+            BigDecimal weightVarianceKg,
+            String varianceNote,
+            BlankReturnStatus status,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt
+    ) {}
+
+    public record InventoryTransactionView(
+            Long id,
+            InventoryTransactionType transactionType,
+            ProductionSection sourceSection,
+            ProductionSection destinationSection,
+            String sourceRecordType,
+            Long sourceRecordId,
+            String destinationRecordType,
+            Long destinationRecordId,
+            BigDecimal quantity,
+            String unit,
+            BigDecimal weightKg,
+            UserView actor,
+            LocalDateTime transactionTime,
+            String reasonReference
+    ) {}
+
+    public record ProductionGenealogyView(
+            ApprovedMaterialBatchView compoundStock,
+            List<BlankingBatchView> blankingBatches,
+            List<BlankingCartView> carts,
+            List<CartReceiptView> receipts,
+            List<MouldingProductionRecordView> productionRecords,
+            List<BlankReturnView> returns,
+            List<InventoryTransactionView> inventoryTransactions
     ) {}
 
     public record CreateShortageRequest(
@@ -654,6 +797,25 @@ public final class ApiModels {
             LocalDate fromDate,
             LocalDate toDate,
             ProductionShift shift,
+            BigDecimal compoundRequiredKg,
+            BigDecimal compoundReceivedKg,
+            BigDecimal compoundUsedKg,
+            BigDecimal compoundAvailableKg,
+            BigDecimal expectedBlankQuantity,
+            long actualGoodBlankQuantity,
+            long blankingProductionVariance,
+            long blankingRejectedQuantity,
+            BigDecimal blankingRejectedWeightKg,
+            long cartsPrepared,
+            long cartsHeld,
+            long cartsDispatched,
+            long cartsReceived,
+            long cartsReturned,
+            long returnedBlankQuantity,
+            BigDecimal averageCartTransferMinutes,
+            BigDecimal returnedBlankWeightKg,
+            long returnVariances,
+            long unbalancedRecords,
             long blankingBatchesProduced,
             long blanksProduced,
             long blanksDispatched,

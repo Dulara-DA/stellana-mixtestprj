@@ -1,6 +1,7 @@
 package com.stellana.mixing.api;
 
 import com.stellana.mixing.api.ApiModels.ProductionManagerSummary;
+import com.stellana.mixing.api.ApiModels.ProductionGenealogyView;
 import com.stellana.mixing.domain.ProductionShift;
 import com.stellana.mixing.service.CombinedProductionPdfService;
 import com.stellana.mixing.service.ProductionManagerService;
@@ -14,6 +15,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
@@ -66,5 +68,10 @@ public class ProductionManagerController {
                 .contentType(MediaType.APPLICATION_PDF)
                 .contentLength(report.content().length)
                 .body(report.content());
+    }
+
+    @GetMapping("/genealogy/{mixingBatchNumber}")
+    public ProductionGenealogyView genealogy(@PathVariable String mixingBatchNumber) {
+        return productionManagerService.genealogy(mixingBatchNumber);
     }
 }

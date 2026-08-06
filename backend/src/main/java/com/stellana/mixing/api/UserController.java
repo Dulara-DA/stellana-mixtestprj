@@ -27,6 +27,12 @@ public class UserController {
         return userService.activeOfficers();
     }
 
+    @GetMapping("/blanking-operators")
+    @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public List<OperatorOptionView> blankingOperators() {
+        return userService.activeBlankingOperators();
+    }
+
     @PostMapping
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public UserView create(@Valid @RequestBody CreateUserRequest request) {

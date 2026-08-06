@@ -2,12 +2,17 @@
 
 An expandable factory prototype covering the connected flow:
 
-`Mixing → Laboratory approval → Blanking → cart transfer → Moulding`
+`Mixing → Blanking → cart hold/dispatch → Moulding receipt → Press production → unused-blank return`
+
+For the current prototype, Blanking accepts the physical Mixing batch number
+and compound code manually. Lab approval and Compound Stock enforcement remain
+implemented but are temporarily not required until the Lab workflow is introduced.
 
 It preserves the existing Mixing workflow and adds server-controlled shifts,
 employee identity, Blanking inventory, cart dispatch/receipt, live press status,
 Moulding output, material-shortage conversations, management reporting, STOMP
-real-time events, and audit history.
+real-time events, append-only inventory movements, return reconciliation,
+material genealogy, and audit history.
 
 ## Project layout
 
@@ -139,7 +144,13 @@ cd frontend
 npm run build
 ```
 
-The backend suite includes JUnit/Mockito unit tests, MockMvc authentication checks, public traceability checks, and an end-to-end workflow test covering material request/issue, both mixing stages, sample submission, laboratory pass, blanking release, batch history, issue creation, and manager reply.
+The backend suite includes JUnit/Mockito unit tests, MockMvc authentication
+checks, public traceability checks, and end-to-end workflow tests covering
+material request/issue, both mixing stages, sample submission, laboratory pass,
+blanking release, batch history, issue creation, manager reply, calculated
+Blanking yield, hold/release/dispatch, one-time receipt, partial Press
+consumption, rejected weight, unused-blank reservation/confirmation, ledger and
+genealogy.
 It also tests shift boundaries, previous-date ownership for the overnight shift,
 role restrictions, one-time cart receipt, press inventory calculations,
 Moulding quantity validation, rejected-weight calculations, and controlled
@@ -162,30 +173,77 @@ Mixing, Blanking and Moulding report structure, section content and role access.
 
 ## Blanking and Moulding demonstration workflow
 
-1. Complete the existing Mixing/Lab workflow and release a passed batch to
-   Blanking. This creates a persistent approved-material record.
-2. Sign in as Blanking Operator, open **Blanking → Blanking Batches**, and create
-   a batch from approved material. Material consumption is kilograms; planned
-   output is a count of blanks.
-3. Record IN/start, then complete the batch. The server records shift, production
-   date, operator employee ID, IN and OUT times.
-4. Open **Carts & Dispatch**, reserve good blanks on a uniquely numbered cart,
-   choose the destination press, and dispatch it.
-5. Sign in as Moulding Operator. Receive the dispatched cart at the intended
+1. Sign in as Blanking Operator, Supervisor, or System Administrator.
+2. Open **Blanking Production** and manually record the physical Mixing batch
+   number and compound/material code. This is a temporary prototype workflow;
+   it does not represent a laboratory approval.
+3. Record the item, mill and
+   preformer operators, issued kilograms and average blank grams. The screen
+   previews expected pieces and warns if the result is fractional.
+4. Record IN/start, then complete the batch with good/rejected pieces, rejected
+   material kilograms and the measured remaining compound. The server
+   recalculates every balance and records shift, production date, employee ID
+   and IN/OUT times.
+5. Open **Carts & Dispatch**, reserve good blanks on one or more uniquely
+   numbered carts and choose a destination Press. A cart can be held with a
+   reason, released, then dispatched; duplicate/invalid transitions are rejected.
+6. Sign in as Moulding Operator. Receive the dispatched cart at the intended
    press. Receipt is allowed once and atomically increases press inventory.
-6. Start a Moulding production record and enter good tyres, rejected tyres,
+7. Start a Moulding production record and enter good tyres, rejected tyres,
    rejected tyre weight per item, rejected blanks, downtime, and notes.
-7. If more blanks are needed, create a request in **Request Blanks**. Blanking
+8. If unused blanks remain, open **Blank Returns**, reserve them for return,
+   send them to Blanking, then sign in as a Blanking user to confirm physical
+   pieces and kilograms. Blanking inventory increases only at confirmation.
+9. If more blanks are needed, create a request in **Request Blanks**. Blanking
    can acknowledge, prepare, link, and dispatch a cart in the same conversation.
-8. Sign in as Manager/Admin and open **Production Report** to filter and review
+10. Sign in as Manager/Admin and open **Production Report** to filter and review
    output, rejections, inventories, shortages, press state, and delayed
    transfers. Select **Download combined PDF** to download the same filtered
    period with detailed Mixing stages and lab decisions, Blanking batches and
    cart transfers, and Moulding production entries.
 
-Demo seed data already includes three presses, approved material, Blanking
-batches, prepared/dispatched/partially consumed carts, one Moulding record and
-one urgent shortage conversation.
+Demo seed data includes three presses, the confirmed sample Compound
+`A-96-50`/Mixing batch `6160`, Lab PASS and 60 kg stock receipt, a 100 g blank
+weight, 600 expected and 500 actual blanks, 50 kg used and 10 kg returned,
+prepared/held/dispatched/received carts, `5 × 100 g = 500 g` rejected-tyre
+output, unused blanks, pending/completed returns and a shortage conversation.
+These are demonstration records only.
+
+## Quantity, weight and balance rules
+
+- `expected pieces = (issued compound kg × 1000) ÷ average blank grams`
+- `used compound kg = actual blank pieces × average blank grams ÷ 1000`
+- `remaining compound kg = issued kg − used kg − rejected material kg`
+- `rejected tyre total grams = rejected tyre pieces × grams per rejected tyre`
+- `remaining Press pieces = available before production − good tyres − rejected tyres − rejected blanks`
+
+Weights use decimal-safe `BigDecimal` calculations on the backend. Expected
+pieces are retained to six decimal places. The whole-piece count is the floor,
+and a fractional result is reported as a warning rather than silently rounded.
+Pieces are integers; compound/rejected/return weights are stored in kg to three
+decimal places, while per-item blank and rejected-tyre weights are entered in
+grams.
+
+An unbalanced completed Blanking record requires a Blanking Supervisor, Manager
+or Administrator and a reason. Return piece or weight differences require a
+variance note and remain visible in status, ledger and audit history.
+
+## Cart and return status workflows
+
+Cart:
+
+`PREPARED → HELD → READY_FOR_DISPATCH → DISPATCHED → RECEIVED_AT_MOULDING → IN_USE/PARTIALLY_CONSUMED/FULLY_CONSUMED → RETURN_PENDING/RETURNED_TO_BLANKING → CLOSED`
+
+A prepared cart can also move directly to dispatch; a held cart must be
+released first. The backend controls the transitions and prevents double
+dispatch or receipt.
+
+Blank return:
+
+`RETURN_PREPARED → SENT_TO_BLANKING → AWAITING_CONFIRMATION → RECEIVED_BY_BLANKING/CLOSED`
+
+A differing receipt becomes `QUANTITY_DISPUTED`. Preparing a return reserves
+the pieces at the Press immediately. Only confirmation adds them to Blanking.
 
 ## Shift and timestamp rules
 
@@ -255,14 +313,20 @@ Swagger UI contains the complete request/response schemas. Main route groups:
 | `/api/recipes`, `/api/batches`, `/api/stages` | Existing revision-controlled Mixing workflow |
 | `/api/material-requests`, `/api/lab` | Stores issue and laboratory workflow |
 | `/api/blanking/approved-materials` | Passed/released Mixing material available to Blanking |
-| `/api/blanking/batches` | Create, start and complete Blanking batches |
-| `/api/blanking/carts` | Prepare and dispatch traceable carts |
+| `/api/blanking/compound-stock` | Detailed stock plus controlled hold/release/reject status |
+| `/api/blanking/batches` | Create, start, complete and audited-supervisor-correct Blanking batches |
+| `/api/blanking/carts` | Prepare, hold, release and dispatch traceable carts |
+| `/api/blanking/returns` | Confirm and review unused-blank returns |
+| `/api/blanking/inventory-transactions` | Append-only movement ledger |
 | `/api/moulding/presses` | Live press inventory/status |
 | `/api/moulding/upcoming-carts` | Incoming carts |
 | `/api/moulding/carts/{id}/receive` | One-time transactional receipt |
+| `/api/moulding/receipts` | Permanent receiving history |
 | `/api/moulding/records` | Start, complete and manager-correct Moulding records |
+| `/api/moulding/returns` | Prepare/send unused blanks and review return history |
 | `/api/shortages` | Cross-section request/status/message history |
 | `/api/production-manager/summary` | Filtered downstream metrics/reporting |
+| `/api/production-manager/genealogy/{mixingBatchNumber}` | Full Mixing-to-return genealogy |
 | `/api/production-manager/report.pdf` | Secured combined Mixing, Blanking and Moulding PDF download |
 | `/api/audit` | Append-only activity history |
 
@@ -292,8 +356,8 @@ placeholder, not a confirmed factory production rule.
   disaster recovery and factory cybersecurity review remain deployment work.
 - Press totals are event-driven prototype counters. Confirm shift reset/rollover
   and ERP reporting rules before using them as official production totals.
-- The kg-to-blank yield formula, production targets, cart-delay threshold,
-  downtime reason master data and rejected-weight interpretation remain TBC.
+- Process-loss/yield tolerances, production targets, cart-delay threshold,
+  downtime reason master data and rejected-weight acceptance rules remain TBC.
 - The existing Lab release now creates `ApprovedMaterialBatch`; the next
   integration step is to replace any temporary manual approval roles with the
   confirmed Lab/Stores responsibilities and synchronize approved quantity,
@@ -331,8 +395,8 @@ placeholder, not a confirmed factory production rule.
 - Important production records use statuses rather than permanent deletion.
 - A cart receipt is unique per cart. Wrong-press receipt requires a Moulding
   Supervisor/Manager/Admin override and reason.
-- Material kilograms, blank counts, and tyre counts are deliberately not
-  converted by an invented formula.
+- The confirmed weight formula converts issued kilograms and average blank
+  grams into expected pieces. It does not assume a process-loss allowance.
 - One consumed blank is treated as one good tyre, rejected tyre, or rejected
   blank for prototype inventory reconciliation; this assumption needs factory
   confirmation.

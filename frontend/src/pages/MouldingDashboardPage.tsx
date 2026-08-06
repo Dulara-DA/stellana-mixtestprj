@@ -39,7 +39,7 @@ export function MouldingDashboardPage() {
   const [presses, setPresses] = useState<Press[]>([])
   const [carts, setCarts] = useState<BlankingCart[]>([])
   const [shortages, setShortages] = useState<MaterialShortage[]>([])
-  const [filters, setFilters] = useState({ press: '', date: '', shift: '', batch: '', status: '' })
+  const [filters, setFilters] = useState({ press: '', date: '', shift: '', batch: '', status: '', blankingOperator: '', itemCode: '', compoundCode: '' })
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
@@ -64,6 +64,9 @@ export function MouldingDashboardPage() {
       && (!filters.shift || context.shift === filters.shift)
       && (!filters.batch || cart.blankingBatchNumber.toLowerCase().includes(filters.batch.toLowerCase()))
       && (!filters.status || cart.status === filters.status)
+      && (!filters.blankingOperator || cart.createdBy.fullName.toLowerCase().includes(filters.blankingOperator.toLowerCase()))
+      && (!filters.itemCode || (cart.itemCode ?? '').toLowerCase().includes(filters.itemCode.toLowerCase()))
+      && (!filters.compoundCode || cart.materialCode.toLowerCase().includes(filters.compoundCode.toLowerCase()))
   }), [carts, filters])
 
   const receive = async (cart: BlankingCart) => {
@@ -146,28 +149,31 @@ export function MouldingDashboardPage() {
           <div><h2 className="font-black text-ink">Upcoming carts</h2><p className="text-xs text-slate-500">Dispatched by Blanking and awaiting physical receipt</p></div>
           {canOpenProduction && <Link to="/moulding/production" className="btn-primary"><CircleDot size={17} /> Production records</Link>}
         </div>
-        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
           <label><span className="label">Press</span><select className="field" value={filters.press} onChange={(e) => setFilters({ ...filters, press: e.target.value })}><option value="">All presses</option>{presses.map((press) => <option key={press.id} value={press.id}>{press.pressNumber}</option>)}</select></label>
           <label><span className="label">Production date</span><input className="field" type="date" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} /></label>
           <label><span className="label">Shift</span><select className="field" value={filters.shift} onChange={(e) => setFilters({ ...filters, shift: e.target.value })}><option value="">All shifts</option><option value="SHIFT_A">Shift A</option><option value="SHIFT_B">Shift B</option><option value="SHIFT_C">Shift C</option></select></label>
           <label><span className="label">Batch number</span><input className="field" value={filters.batch} onChange={(e) => setFilters({ ...filters, batch: e.target.value })} /></label>
-          <label><span className="label">Cart status</span><select className="field" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">All statuses</option><option value="PREPARED">Prepared</option><option value="DISPATCHED">Dispatched</option></select></label>
+          <label><span className="label">Cart status</span><select className="field" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}><option value="">All statuses</option><option value="PREPARED">Prepared</option><option value="HELD">Held</option><option value="READY_FOR_DISPATCH">Ready</option><option value="DISPATCHED">Dispatched</option></select></label>
+          <label><span className="label">Blanking operator</span><input className="field" value={filters.blankingOperator} onChange={(e) => setFilters({ ...filters, blankingOperator: e.target.value })} /></label>
+          <label><span className="label">Item code</span><input className="field" value={filters.itemCode} onChange={(e) => setFilters({ ...filters, itemCode: e.target.value })} /></label>
+          <label><span className="label">Compound code</span><input className="field" value={filters.compoundCode} onChange={(e) => setFilters({ ...filters, compoundCode: e.target.value })} /></label>
         </div>
         {filteredCarts.length === 0 ? (
           <div className="grid min-h-56 place-items-center text-center"><div><PackageCheck className="mx-auto text-slate-300" size={34} /><p className="mt-3 font-bold">No carts waiting</p><p className="text-sm text-slate-500">All dispatched carts have been received.</p></div></div>
         ) : (
           <div className="overflow-x-auto">
             <table className="production-table">
-              <thead><tr><th>Cart</th><th>Blanking batch</th><th>Quantity</th><th>Destination</th><th>Sent by / time</th><th>Status</th><th>Receipt</th></tr></thead>
+              <thead><tr><th>Cart / item</th><th>Blanking trace</th><th>Quantity / weight</th><th>Destination</th><th>Blanking operator / time</th><th>Note / status</th><th>Receipt</th></tr></thead>
               <tbody>{filteredCarts.map((cart) => (
                 <tr key={cart.id}>
-                  <td className="font-black">{cart.cartNumber}</td>
-                  <td>{cart.blankingBatchNumber}<p className="text-xs text-slate-500">{cart.materialCode}</p></td>
-                  <td>{cart.quantity} blanks</td>
+                  <td className="font-black">{cart.cartNumber}<p className="text-xs font-normal text-slate-500">{cart.itemCode ?? 'Item TBC'}</p></td>
+                  <td>{cart.blankingBatchNumber}<p className="text-xs text-slate-500">{cart.mixingBatchNumber} · {cart.materialCode}</p></td>
+                  <td>{cart.quantity} pieces<p className="text-xs text-slate-500">{cart.materialWeightKg ?? '—'} kg</p></td>
                   <td>{cart.destinationPressNumber}</td>
-                  <td>{cart.dispatchedBy?.fullName ?? '—'}<p className="text-xs text-slate-500">{formatDateTime(cart.dispatchedAt)}</p></td>
-                  <td><StatusBadge status={cart.status} /></td>
-                  <td>{canReceive && cart.status === 'DISPATCHED' ? <button className="btn-primary" onClick={() => receive(cart)}><Truck size={17} /> Receive cart</button> : <span className="text-xs text-slate-400">{cart.status === 'PREPARED' ? 'Awaiting dispatch' : 'Read only'}</span>}</td>
+                  <td>{cart.dispatchedBy?.fullName ?? cart.createdBy.fullName}<p className="text-xs text-slate-500">{formatDateTime(cart.dispatchedAt ?? cart.createdAt)}</p></td>
+                  <td><p className="mb-1 max-w-xs text-xs text-slate-500">{cart.status === 'HELD' ? cart.holdReason : cart.blankingNote}</p><StatusBadge status={cart.status} /></td>
+                  <td>{canReceive && cart.status === 'DISPATCHED' ? <button className="btn-primary" onClick={() => receive(cart)}><Truck size={17} /> Receive cart</button> : <span className="text-xs text-slate-400">{cart.status === 'HELD' ? 'Held in Blanking' : cart.status === 'PREPARED' || cart.status === 'READY_FOR_DISPATCH' ? 'Awaiting dispatch' : 'Read only'}</span>}</td>
                 </tr>
               ))}</tbody>
             </table>

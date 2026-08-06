@@ -1,11 +1,11 @@
 import { useCallback, useState, type FormEvent } from 'react'
-import { AlertTriangle, Boxes, Download, Factory, LoaderCircle, Scale, ShieldCheck, Truck } from 'lucide-react'
+import { AlertTriangle, Boxes, Download, Factory, GitBranch, LoaderCircle, Scale, Search, ShieldCheck, Truck } from 'lucide-react'
 import { LiveIndicator } from '../components/LiveIndicator'
 import { PageHeader } from '../components/PageHeader'
 import { StatusBadge } from '../components/StatusBadge'
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh'
 import { api, displayError, downloadFile, formatDateTime, humanize } from '../lib/api'
-import type { ProductionManagerSummary } from '../types'
+import type { ProductionGenealogy, ProductionManagerSummary } from '../types'
 
 const TOPICS = ['/topic/production'] as const
 const today = () => new Date().toISOString().slice(0, 10)
@@ -15,7 +15,12 @@ const reportParams = (values: Record<string, string>) => {
   return params
 }
 const emptySummary: ProductionManagerSummary = {
-  fromDate: today(), toDate: today(), blankingBatchesProduced: 0, blanksProduced: 0, blanksDispatched: 0,
+  fromDate: today(), toDate: today(), compoundRequiredKg: 0, compoundReceivedKg: 0, compoundUsedKg: 0,
+  compoundAvailableKg: 0, expectedBlankQuantity: 0, actualGoodBlankQuantity: 0, blankingProductionVariance: 0,
+  blankingRejectedQuantity: 0, blankingRejectedWeightKg: 0, cartsPrepared: 0, cartsHeld: 0, cartsReceived: 0,
+  cartsDispatched: 0, cartsReturned: 0, returnedBlankQuantity: 0, averageCartTransferMinutes: 0,
+  returnedBlankWeightKg: 0, returnVariances: 0, unbalancedRecords: 0,
+  blankingBatchesProduced: 0, blanksProduced: 0, blanksDispatched: 0,
   blanksAvailableAtBlanking: 0, blanksAvailableAtPresses: 0, goodTyres: 0, rejectedTyres: 0,
   rejectedTyreWeightGrams: 0, rejectedBlanks: 0, rejectionPercentage: 0, openShortageRequests: 0,
   delayedCartTransfers: 0, pressesWaitingForBlanks: 0, presses: [], cartTransfers: [],
@@ -29,6 +34,9 @@ export function ProductionManagerPage() {
   const [error, setError] = useState('')
   const [downloadMessage, setDownloadMessage] = useState('')
   const [downloading, setDownloading] = useState(false)
+  const [genealogyBatch, setGenealogyBatch] = useState('')
+  const [genealogy, setGenealogy] = useState<ProductionGenealogy | null>(null)
+  const [tracing, setTracing] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +62,22 @@ export function ProductionManagerPage() {
       setError(displayError(reason))
     } finally {
       setDownloading(false)
+    }
+  }
+  const trace = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!genealogyBatch.trim()) return
+    setTracing(true)
+    try {
+      setGenealogy(await api<ProductionGenealogy>(
+        `/api/production-manager/genealogy/${encodeURIComponent(genealogyBatch.trim())}`,
+      ))
+      setError('')
+    } catch (reason) {
+      setGenealogy(null)
+      setError(displayError(reason))
+    } finally {
+      setTracing(false)
     }
   }
 
@@ -90,6 +114,13 @@ export function ProductionManagerPage() {
         <button className="btn-primary self-end">Apply filters</button>
       </form>
 
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="card p-4"><p className="text-xs font-bold uppercase text-slate-500">Compound required / received</p><p className="mt-2 text-2xl font-black">{summary.compoundRequiredKg} / {summary.compoundReceivedKg} <span className="text-sm text-slate-500">kg</span></p></div>
+        <div className="card p-4"><p className="text-xs font-bold uppercase text-slate-500">Compound used / available</p><p className="mt-2 text-2xl font-black">{summary.compoundUsedKg} / {summary.compoundAvailableKg} <span className="text-sm text-slate-500">kg</span></p></div>
+        <div className="card p-4"><p className="text-xs font-bold uppercase text-slate-500">Expected / actual good blanks</p><p className="mt-2 text-2xl font-black">{summary.expectedBlankQuantity} / {summary.actualGoodBlankQuantity}</p><p className="text-xs text-slate-500">Variance {summary.blankingProductionVariance} pieces</p></div>
+        <div className="card p-4"><p className="text-xs font-bold uppercase text-slate-500">Blanking rejection</p><p className="mt-2 text-2xl font-black text-red-700">{summary.blankingRejectedQuantity} <span className="text-sm">pieces</span></p><p className="text-xs text-slate-500">{summary.blankingRejectedWeightKg} kg rejected material</p></div>
+      </div>
+
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {kpis.map(([label, value, Icon, tone]) => <div key={label} className="card p-4"><div className={`mb-3 grid h-10 w-10 place-items-center rounded-xl ${tone}`}><Icon size={19} /></div><p className="text-2xl font-black">{value}</p><p className="mt-1 text-xs font-semibold text-slate-500">{label}</p></div>)}
       </div>
@@ -101,6 +132,21 @@ export function ProductionManagerPage() {
         <div className="card p-4"><p className="text-xs font-bold uppercase text-slate-500">Open shortages</p><p className="mt-2 text-2xl font-black text-red-700">{summary.openShortageRequests}</p></div>
         <div className="card p-4"><p className="text-xs font-bold uppercase text-slate-500">Delayed transfers</p><p className="mt-2 text-2xl font-black text-amber-700">{summary.delayedCartTransfers}</p><p className="text-[11px] text-slate-400">Delay threshold configurable / TBC</p></div>
       </div>
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        {[
+          ['Carts prepared', summary.cartsPrepared],
+          ['Carts held', summary.cartsHeld],
+          ['Carts dispatched', summary.cartsDispatched],
+          ['Carts received', summary.cartsReceived],
+          ['Carts returned', summary.cartsReturned],
+          ['Returned blanks', summary.returnedBlankQuantity],
+          ['Return variances', summary.returnVariances],
+          ['Unbalanced records', summary.unbalancedRecords],
+        ].map(([label, value]) => <div key={String(label)} className="card p-4"><p className="text-xs font-bold uppercase text-slate-500">{label}</p><p className={`mt-2 text-2xl font-black ${String(label).includes('variance') || String(label).includes('Unbalanced') ? 'text-red-700' : ''}`}>{value}</p></div>)}
+      </div>
+
+      <div className="mb-6 card p-4"><p className="text-xs font-bold uppercase text-slate-500">Average cart transfer duration</p><p className="mt-2 text-2xl font-black">{summary.averageCartTransferMinutes} <span className="text-sm text-slate-500">minutes</span></p><p className="text-xs text-slate-500">Server dispatch timestamp to permanent Moulding receipt timestamp for the selected carts.</p></div>
 
       <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
         <section className="card overflow-hidden">
@@ -132,6 +178,32 @@ export function ProductionManagerPage() {
           </table>
         </section>
       </div>
+
+      <section className="card mt-6 overflow-hidden">
+        <div className="border-b border-slate-200 p-5">
+          <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-blue-100 text-process"><GitBranch size={20} /></div><div><h2 className="font-black">Complete material genealogy</h2><p className="text-xs text-slate-500">Mixing batch → Lab PASS stock → Blanking → cart → receipt → press output → returned blanks</p></div></div>
+          <form onSubmit={trace} className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <input className="field flex-1" required value={genealogyBatch} onChange={(e) => setGenealogyBatch(e.target.value)} placeholder="Enter Mixing/compound batch number" />
+            <button className="btn-primary" disabled={tracing}>{tracing ? <LoaderCircle className="animate-spin" size={17} /> : <Search size={17} />} Trace batch</button>
+          </form>
+        </div>
+        {genealogy && <div className="p-5">
+          <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Compound</p><p className="font-black">{genealogy.compoundStock.materialCode}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Stock</p><p className="font-black">{genealogy.compoundStock.availableQuantityKg} kg</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Blanking batches</p><p className="font-black">{genealogy.blankingBatches.length}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Carts / receipts</p><p className="font-black">{genealogy.carts.length} / {genealogy.receipts.length}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Press records</p><p className="font-black">{genealogy.productionRecords.length}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Returns</p><p className="font-black">{genealogy.returns.length}</p></div>
+          </div>
+          <div className="overflow-x-auto">
+            <table>
+              <thead><tr><th>Movement</th><th>From</th><th>To</th><th>Quantity</th><th>User / time</th><th>Reference</th></tr></thead>
+              <tbody>{genealogy.inventoryTransactions.map((item) => <tr key={item.id}><td><StatusBadge status={item.transactionType} /></td><td>{item.sourceSection ?? '—'}<p className="text-xs text-slate-500">{item.sourceRecordType} #{item.sourceRecordId}</p></td><td>{item.destinationSection ?? '—'}<p className="text-xs text-slate-500">{item.destinationRecordType} #{item.destinationRecordId}</p></td><td>{item.quantity} {item.unit}<p className="text-xs text-slate-500">{item.weightKg != null ? `${item.weightKg} kg` : ''}</p></td><td>{item.actor.fullName}<p className="text-xs text-slate-500">{formatDateTime(item.transactionTime)}</p></td><td>{item.reasonReference ?? '—'}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </div>}
+      </section>
     </div>
   )
 }

@@ -25,16 +25,20 @@
 - **ApprovedMaterialBatch** is the durable boundary between Mixing/Lab and
   Blanking. It references the passed/released **ProductionBatch** and
   **LabSample**, snapshots mixing batch number/material/compound, and carries
-  approved and remaining quantities in kilograms.
+  planned, received, available, reserved, consumed and returned quantities in
+  kilograms. In the UI this entity is presented as Compound Stock; a separate
+  duplicate stock model was intentionally not introduced.
 - **BlankingBatch** consumes kilograms from exactly one
-  **ApprovedMaterialBatch**. It records a separate planned/actual/rejected count
-  of blanks plus official production date, shift, operator employee ID, IN/OUT
-  times and available good-blank inventory.
+  **ApprovedMaterialBatch**. It records item, mill/preformer/blanking operators,
+  average blank weight, exact and whole expected output, actual/rejected pieces,
+  used/rejected/remaining weights, variance, balance approval, official
+  production date/shift, IN/OUT times and available good-blank inventory.
 - **Press** is master and live-state data for one Moulding press. Its inventory
   and cumulative output counters are updated only inside transactional services.
 - **BlankingCart** belongs to one **BlankingBatch**, has a unique cart number,
-  destination **Press**, integer quantity/balance, creator/dispatcher and
-  lifecycle state.
+  destination **Press**, item/compound/batch snapshots, integer
+  quantity/remaining/returned balances, calculated material weight,
+  creator/holder/releaser/dispatcher and controlled lifecycle state.
 - **CartTransfer** is the one-to-one dispatch transaction for a cart.
   **CartReceipt** is the one-to-one receipt transaction, which prevents double
   receipt and stores both sending and receiving identities/timestamps.
@@ -42,6 +46,14 @@
   snapshots shift, date and operator employee ID and stores good tyres,
   rejected tyres, rejected tyre weight, rejected blanks, remaining blanks and
   downtime.
+- **BlankReturn** reserves unused pieces from exactly one received Cart and
+  Press. It stores Moulding sending and Blanking receiving identities and
+  server timestamps, declared/received piece and weight values, variances,
+  reason/notes and a controlled return state. Blanking inventory is increased
+  only when receipt is confirmed.
+- **InventoryTransaction** is an append-only movement ledger. Each row records a
+  movement type, source/destination section and record, quantity/unit, optional
+  kilogram weight, authenticated actor, server timestamp and reason/reference.
 - **MaterialShortageRequest** is sent from a Press to Blanking, can reference the
   current BlankingBatch and one fulfilment Cart, and owns append-only
   **RequestMessage** conversation rows. Each message snapshots the status at the
@@ -58,6 +70,9 @@ ApprovedMaterialBatch ──< BlankingBatch ──< BlankingCart
                                              Press
                                                │
                                                └──< MouldingProductionRecord
+                                               └──< BlankReturn ──> BlankingBatch
+
+All movement points ──< InventoryTransaction (polymorphic record references)
 
 Press ──< MaterialShortageRequest ──< RequestMessage
                        └── optional fulfilment BlankingCart
@@ -77,8 +92,9 @@ Press ──< MaterialShortageRequest ──< RequestMessage
    `READY_FOR_STAGE_2` for sulphur addition.
 8. Production records are cancelled, closed, made obsolete, or deactivated rather than deleted through normal APIs.
 9. QR codes contain only a safe random traceability reference/URL.
-10. Blanking can consume only a persisted PASS/released material record, and kg
-    availability cannot become negative.
+10. Blanking may temporarily use a manual physical Mixing batch/code with no
+    approved-stock reference. When an approved-stock reference is supplied, Lab
+    PASS, controlled status, reservation, and non-negative kg rules still apply.
 11. A cart reserves good blank count from its source batch before dispatch.
 12. Receipt requires `DISPATCHED`, is unique per cart, and atomically adds
     quantity to the receiving Press. A wrong-press override requires an
@@ -89,5 +105,17 @@ Press ──< MaterialShortageRequest ──< RequestMessage
     rebalance inventory, and append an old/new/reason audit event.
 15. Official production date, shift, IN/OUT timestamps and employee ID snapshots
     are server-controlled.
+16. Expected blanks use `(issued kg × 1000) ÷ average grams`; the exact decimal
+    is stored at six decimal places and the whole-piece value is the floor.
+    Fractional results are explicitly flagged instead of silently rounded.
+17. Completing Blanking recalculates used and remaining kilograms on the server.
+    A measured imbalance requires a Blanking Supervisor, Manager or
+    Administrator plus a reason.
+18. Cart hold, release, dispatch, receipt, production and return transitions are
+    backend controlled. Pessimistic row locks and optimistic entity versions
+    protect stock, batch, cart and press counters against concurrent updates.
+19. A return deducts/reserves Press and Cart inventory when prepared, and adds
+    pieces back to Blanking only after confirmed receipt. Duplicate receipt,
+    dispatch and return confirmation are rejected.
 
 See `docs/database-schema.sql` for a portable PostgreSQL-oriented schema reference.

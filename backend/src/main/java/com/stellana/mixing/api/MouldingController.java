@@ -2,6 +2,7 @@ package com.stellana.mixing.api;
 
 import com.stellana.mixing.api.ApiModels.*;
 import com.stellana.mixing.service.MouldingService;
+import com.stellana.mixing.service.BlankReturnService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -14,6 +15,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class MouldingController {
     private final MouldingService mouldingService;
+    private final BlankReturnService blankReturnService;
 
     @GetMapping("/presses")
     @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MOULDING_OPERATOR',"
@@ -83,5 +85,24 @@ public class MouldingController {
             @Valid @RequestBody CorrectMouldingRecordRequest request
     ) {
         return mouldingService.correctRecord(id, request);
+    }
+
+    @GetMapping("/returns")
+    @PreAuthorize("hasAnyRole('MOULDING_OPERATOR','MOULDING_SUPERVISOR','BLANKING_OPERATOR',"
+            + "'BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public List<BlankReturnView> returns() {
+        return blankReturnService.list();
+    }
+
+    @PostMapping("/returns")
+    @PreAuthorize("hasAnyRole('MOULDING_OPERATOR','MOULDING_SUPERVISOR','SYSTEM_ADMIN')")
+    public BlankReturnView prepareReturn(@Valid @RequestBody CreateBlankReturnRequest request) {
+        return blankReturnService.prepare(request);
+    }
+
+    @PostMapping("/returns/{id}/send")
+    @PreAuthorize("hasAnyRole('MOULDING_OPERATOR','MOULDING_SUPERVISOR','SYSTEM_ADMIN')")
+    public BlankReturnView sendReturn(@PathVariable Long id) {
+        return blankReturnService.send(id);
     }
 }

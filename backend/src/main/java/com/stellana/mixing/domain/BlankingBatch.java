@@ -9,6 +9,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -33,8 +34,8 @@ public class BlankingBatch extends BaseEntity {
     @Column(nullable = false, unique = true)
     private String batchNumber;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "approved_material_batch_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "approved_material_batch_id")
     private ApprovedMaterialBatch approvedMaterialBatch;
 
     @Column(nullable = false)
@@ -43,17 +44,60 @@ public class BlankingBatch extends BaseEntity {
     @Column(nullable = false)
     private String materialCode;
 
-    @Column(nullable = false, precision = 12, scale = 3)
+    private String itemCode;
+
+    private String millOperator;
+
+    private String preformerOperator;
+
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
     private BigDecimal materialConsumedKg;
 
     @Column(nullable = false)
     private Integer plannedProductionQuantity;
 
+    @Column(precision = 12, scale = 3)
+    private BigDecimal averageBlankWeightGrams;
+
+    @Column(precision = 16, scale = 6)
+    private BigDecimal expectedBlankQuantity;
+
+    private Integer expectedWholeBlankQuantity;
+
     private Integer productionQuantity;
+
+    private Integer actualGoodBlankQuantity;
 
     @Column(nullable = false)
     @Builder.Default
     private Integer rejectedQuantity = 0;
+
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
+    @Builder.Default
+    private BigDecimal rejectedMaterialWeightKg = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
+    @Builder.Default
+    private BigDecimal actualUsedCompoundWeightKg = BigDecimal.ZERO;
+
+    @Column(nullable = false, precision = 12, scale = 3, columnDefinition = "numeric(12,3) default 0")
+    @Builder.Default
+    private BigDecimal remainingCompoundWeightKg = BigDecimal.ZERO;
+
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    @Builder.Default
+    private Integer productionVariance = 0;
+
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    @Builder.Default
+    private boolean unbalanced = false;
+
+    @Column(length = 1000)
+    private String balanceConfirmationReason;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "balance_confirmed_by_id")
+    private UserAccount balanceConfirmedBy;
 
     @Column(nullable = false)
     @Builder.Default
@@ -82,4 +126,9 @@ public class BlankingBatch extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private BlankingBatchStatus status;
+
+    @Version
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    @Builder.Default
+    private Long version = 0L;
 }

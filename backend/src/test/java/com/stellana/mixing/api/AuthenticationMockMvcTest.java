@@ -113,6 +113,25 @@ class AuthenticationMockMvcTest {
     }
 
     @Test
+    void blankingOperatorCanLoadSafeEmployeeNumberAndNameOptions() throws Exception {
+        String response = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"blanking.operator@stellana.local","password":"Blanking123!"}
+                                """))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String token = objectMapper.readTree(response).get("token").asText();
+
+        mockMvc.perform(get("/api/users/blanking-operators")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].employeeId").isNotEmpty())
+                .andExpect(jsonPath("$[0].fullName").isNotEmpty())
+                .andExpect(jsonPath("$[0].email").doesNotExist());
+    }
+
+    @Test
     void safeTraceabilityEndpointIsPublic() throws Exception {
         String code = batchRepository.findAll().getFirst().getTraceabilityCode();
         mockMvc.perform(get("/api/public/trace/{code}", code))

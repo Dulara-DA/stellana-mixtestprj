@@ -13,6 +13,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.UUID;
 
 import static com.stellana.mixing.api.ApiMapper.*;
 
@@ -33,6 +34,7 @@ public class MouldingService {
     private final ShiftService shiftService;
     private final AuditService auditService;
     private final RealtimeEventService realtimeEventService;
+    private final InventoryLedgerService inventoryLedgerService;
 
     @Transactional(readOnly = true)
     public List<PressView> listPresses() {
@@ -51,7 +53,8 @@ public class MouldingService {
     @Transactional(readOnly = true)
     public List<BlankingCartView> upcomingCarts() {
         return blankingCartRepository.findAllByStatusInOrderByCreatedAtDesc(
-                        EnumSet.of(BlankingCartStatus.PREPARED, BlankingCartStatus.DISPATCHED))
+                        EnumSet.of(BlankingCartStatus.PREPARED, BlankingCartStatus.HELD,
+                                BlankingCartStatus.READY_FOR_DISPATCH, BlankingCartStatus.DISPATCHED))
                 .stream().map(com.stellana.mixing.api.ApiMapper::blankingCart).toList();
     }
 
@@ -65,7 +68,7 @@ public class MouldingService {
     @Transactional
     public CartReceiptView receiveCart(Long cartId, ReceiveCartRequest request) {
         UserAccount actor = currentUserService.requireCurrentUser();
-        BlankingCart cart = blankingCartRepository.findById(cartId)
+        BlankingCart cart = blankingCartRepository.findByIdForUpdate(cartId)
                 .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
         if (cart.getStatus() != BlankingCartStatus.DISPATCHED) {
             throw new BusinessRuleException("Only a dispatched cart can be received.");
@@ -73,7 +76,7 @@ public class MouldingService {
         if (cartReceiptRepository.existsByCartId(cart.getId())) {
             throw new BusinessRuleException("This cart has already been received.");
         }
-        Press press = pressRepository.findById(request.pressId())
+        Press press = pressRepository.findByIdForUpdate(request.pressId())
                 .filter(Press::isActive)
                 .orElseThrow(() -> new NotFoundException("Receiving press not found or inactive."));
 
@@ -106,6 +109,7 @@ public class MouldingService {
         Press savedPress = pressRepository.save(press);
 
         CartReceipt receipt = cartReceiptRepository.save(CartReceipt.builder()
+                .receiptNumber("RCT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase())
                 .cart(savedCart)
                 .receivedQuantity(savedCart.getQuantity())
                 .productionDate(shift.productionDate())
@@ -119,6 +123,19 @@ public class MouldingService {
                 .receiptStatus(receiptStatus)
                 .overrideReason(wrongPress ? request.overrideReason().trim() : null)
                 .build());
+        inventoryLedgerService.record(
+                InventoryTransactionType.CART_RECEIVED,
+                ProductionSection.BLANKING,
+                ProductionSection.MOULDING,
+                "BlankingCart",
+                savedCart.getId(),
+                "Press",
+                savedPress.getId(),
+                BigDecimal.valueOf(savedCart.getQuantity()),
+                "pieces",
+                savedCart.getMaterialWeightKg(),
+                actor,
+                receipt.getReceiptNumber());
 
         shortageRequestRepository.findFirstByLinkedCartId(cart.getId()).ifPresent(shortage -> {
             shortage.setStatus(ShortageStatus.FULFILLED);
@@ -153,10 +170,10 @@ public class MouldingService {
     @Transactional
     public MouldingProductionRecordView startRecord(StartMouldingRecordRequest request) {
         UserAccount actor = currentUserService.requireCurrentUser();
-        Press press = pressRepository.findById(request.pressId())
+        Press press = pressRepository.findByIdForUpdate(request.pressId())
                 .filter(Press::isActive)
                 .orElseThrow(() -> new NotFoundException("Press not found or inactive."));
-        BlankingCart cart = blankingCartRepository.findById(request.cartId())
+        BlankingCart cart = blankingCartRepository.findByIdForUpdate(request.cartId())
                 .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
         if (!EnumSet.of(BlankingCartStatus.RECEIVED_AT_MOULDING, BlankingCartStatus.PARTIALLY_CONSUMED)
                 .contains(cart.getStatus())) {
@@ -191,6 +208,8 @@ public class MouldingService {
                 .remainingBlankQuantity(cart.getRemainingQuantity())
                 .status(MouldingRecordStatus.IN_PROGRESS)
                 .build());
+        cart.setStatus(BlankingCartStatus.IN_USE);
+        blankingCartRepository.save(cart);
         press.setStatus(PressStatus.RUNNING);
         press.setCurrentOperator(actor);
         press.setCurrentBlankingBatch(cart.getBlankingBatch());
@@ -217,8 +236,10 @@ public class MouldingService {
         if (used > record.getQuantityReceived()) {
             throw new BusinessRuleException("Good, rejected tyre, and rejected blank quantities exceed received blanks.");
         }
-        BlankingCart cart = record.getCart();
-        Press press = record.getPress();
+        BlankingCart cart = blankingCartRepository.findByIdForUpdate(record.getCart().getId())
+                .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
+        Press press = pressRepository.findByIdForUpdate(record.getPress().getId())
+                .orElseThrow(() -> new NotFoundException("Press not found."));
         if (used > cart.getRemainingQuantity() || used > press.getAvailableBlankQuantity()) {
             throw new BusinessRuleException("Production quantities exceed the current cart or press inventory.");
         }
@@ -255,6 +276,38 @@ public class MouldingService {
         pressRepository.save(press);
 
         MouldingProductionRecord saved = recordRepository.save(record);
+        if (request.goodTyreQuantity() > 0) {
+            inventoryLedgerService.record(
+                    InventoryTransactionType.BLANKS_CONSUMED,
+                    ProductionSection.MOULDING,
+                    ProductionSection.MOULDING,
+                    "BlankingCart",
+                    cart.getId(),
+                    "MouldingProductionRecord",
+                    saved.getId(),
+                    BigDecimal.valueOf(request.goodTyreQuantity()),
+                    "pieces",
+                    null,
+                    actor,
+                    "Good tyre output at " + press.getPressNumber());
+        }
+        int rejectedItems = request.rejectedTyreQuantity() + request.rejectedBlankQuantity();
+        if (rejectedItems > 0) {
+            inventoryLedgerService.record(
+                    InventoryTransactionType.BLANKS_REJECTED,
+                    ProductionSection.MOULDING,
+                    ProductionSection.MOULDING,
+                    "BlankingCart",
+                    cart.getId(),
+                    "MouldingProductionRecord",
+                    saved.getId(),
+                    BigDecimal.valueOf(rejectedItems),
+                    "pieces",
+                    totalRejectedWeight.divide(BigDecimal.valueOf(1000), 3, java.math.RoundingMode.HALF_UP),
+                    actor,
+                    "Rejected tyres " + request.rejectedTyreQuantity()
+                            + "; rejected blanks " + request.rejectedBlankQuantity());
+        }
         auditService.record(actor, "COMPLETE_MOULDING_RECORD", "MouldingProductionRecord", saved.getId(),
                 "IN_PROGRESS",
                 "COMPLETED / good " + request.goodTyreQuantity()
@@ -286,8 +339,10 @@ public class MouldingService {
             throw new BusinessRuleException("Corrected quantities exceed the blanks originally received.");
         }
         int inventoryAdjustment = oldUsed - newUsed;
-        Press press = record.getPress();
-        BlankingCart cart = record.getCart();
+        Press press = pressRepository.findByIdForUpdate(record.getPress().getId())
+                .orElseThrow(() -> new NotFoundException("Press not found."));
+        BlankingCart cart = blankingCartRepository.findByIdForUpdate(record.getCart().getId())
+                .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
         int correctedPressInventory = press.getAvailableBlankQuantity() + inventoryAdjustment;
         int correctedCartRemaining = cart.getRemainingQuantity() + inventoryAdjustment;
         if (correctedPressInventory < 0 || correctedCartRemaining < 0
@@ -325,6 +380,19 @@ public class MouldingService {
         record.setDowntimeReason(trimToNull(request.downtimeReason()));
         record.setOperatorNote(trimToNull(request.operatorNote()));
         MouldingProductionRecord saved = recordRepository.save(record);
+        inventoryLedgerService.record(
+                InventoryTransactionType.INVENTORY_CORRECTION,
+                ProductionSection.MOULDING,
+                ProductionSection.MOULDING,
+                "MouldingProductionRecord",
+                saved.getId(),
+                "Press",
+                press.getId(),
+                BigDecimal.valueOf(inventoryAdjustment),
+                "pieces",
+                null,
+                actor,
+                request.correctionReason().trim());
 
         auditService.record(actor, "CORRECT_MOULDING_RECORD", "MouldingProductionRecord", saved.getId(),
                 previous,
@@ -338,7 +406,7 @@ public class MouldingService {
     @Transactional
     public PressView changePressStatus(Long id, PressStatusRequest request) {
         UserAccount actor = currentUserService.requireCurrentUser();
-        Press value = pressRepository.findById(id)
+        Press value = pressRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new NotFoundException("Press not found."));
         if ((request.status() == PressStatus.STOPPED || request.status() == PressStatus.MAINTENANCE)
                 && !StringUtils.hasText(request.reason())) {
