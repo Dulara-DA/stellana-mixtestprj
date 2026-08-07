@@ -105,12 +105,30 @@ public final class ApiModels {
             @NotNull @DecimalMin("0.001") @DecimalMax("240.000") BigDecimal plannedQuantityKg,
             @NotBlank String machine,
             Long assignedOfficerId,
-            Long reprocessingSourceBatchId
+            Long reprocessingSourceBatchId,
+            LocalDateTime plannedStartTime,
+            LocalDateTime targetCompletionTime,
+            ProductionPriority productionPriority,
+            String scheduleNotes,
+            Boolean confirmScheduleConflicts,
+            String scheduleConflictReason
+    ) {}
+
+    public record ScheduleBatchRequest(
+            @NotNull LocalDateTime plannedStartTime,
+            @NotNull LocalDateTime targetCompletionTime,
+            @NotNull Long assignedOfficerId,
+            @NotBlank String machine,
+            ProductionPriority productionPriority,
+            String scheduleNotes,
+            Boolean confirmScheduleConflicts,
+            String scheduleConflictReason
     ) {}
 
     public record BatchTransitionRequest(
             @NotNull BatchStatus status,
-            String reason
+            String reason,
+            Boolean temporaryLabBypass
     ) {}
 
     public record BatchView(
@@ -126,6 +144,13 @@ public final class ApiModels {
             String machine,
             UserView assignedOfficer,
             LocalDateTime createdAt,
+            LocalDateTime plannedStartTime,
+            LocalDateTime targetCompletionTime,
+            ProductionPriority productionPriority,
+            String scheduleNotes,
+            UserView scheduledBy,
+            LocalDateTime scheduledAt,
+            ScheduleTimingStatus scheduleTimingStatus,
             BatchStatus status,
             Integer currentStage,
             String issueOrStoppageReason,
@@ -133,6 +158,10 @@ public final class ApiModels {
             String reprocessingSourceBatchNumber,
             LabDecision laboratoryStatus,
             ReleaseStatus releaseStatus,
+            Boolean temporaryLabBypass,
+            String temporaryLabBypassReason,
+            UserView temporaryLabBypassApprovedBy,
+            LocalDateTime temporaryLabBypassApprovedAt,
             String traceabilityCode,
             LocalDateTime stage1StartedAt,
             LocalDateTime stage1CompletedAt,
@@ -226,7 +255,9 @@ public final class ApiModels {
             @NotNull @Min(1) @Max(2) Integer stageNumber,
             String machine,
             Boolean managerOverride,
-            String overrideReason
+            String overrideReason,
+            Boolean earlyStartOverride,
+            String earlyStartReason
     ) {}
 
     public record StageCompleteRequest(
@@ -394,7 +425,12 @@ public final class ApiModels {
             long failedBatches,
             long stoppedOrDelayed,
             long unreadIssues,
+            long scheduledBatches,
+            long readyToStart,
+            long dueSoon,
+            long overdue,
             List<BatchView> activeBatchDetails,
+            List<BatchView> scheduleBoard,
             List<BatchView> batchBoard,
             List<AuditView> recentActivity
     ) {}
@@ -426,6 +462,10 @@ public final class ApiModels {
             LocalDateTime receivedAt,
             UserView receivingOperator,
             CompoundStockStatus stockStatus,
+            boolean temporaryLabBypass,
+            String temporaryLabBypassReason,
+            UserView temporaryLabBypassApprovedBy,
+            LocalDateTime temporaryLabBypassApprovedAt,
             String notes,
             boolean active,
             LocalDateTime lastUpdatedAt
@@ -436,13 +476,18 @@ public final class ApiModels {
             @NotBlank String reason
     ) {}
 
+    public record UpdateCompoundReceiptRequest(
+            @NotNull @DecimalMin("0.000") @Digits(integer = 9, fraction = 3) BigDecimal receivedQuantityKg,
+            @NotBlank @Size(max = 500) String reason
+    ) {}
+
     public record CreateBlankingBatchRequest(
             @NotBlank String batchNumber,
             Long approvedMaterialBatchId,
             String mixingBatchNumber,
             String materialCode,
             @NotNull @DecimalMin("0.001") BigDecimal materialConsumedKg,
-            @NotNull @Min(1) Integer plannedProductionQuantity,
+            @Min(0) Integer plannedProductionQuantity,
             String itemCode,
             String millOperator,
             String preformerOperator,
@@ -513,6 +558,7 @@ public final class ApiModels {
             @NotBlank String cartNumber,
             @NotNull Long blankingBatchId,
             @NotNull @Min(1) Integer quantity,
+            @NotNull @DecimalMin("0.001") @Digits(integer = 9, fraction = 3) BigDecimal averageBlankWeightGrams,
             @NotNull Long destinationPressId,
             String blankingNote,
             Long shortageRequestId
@@ -560,6 +606,7 @@ public final class ApiModels {
             UserView currentOperator,
             Long currentBlankingBatchId,
             String currentBlankingBatchNumber,
+            String currentItemCode,
             Integer availableBlankQuantity,
             Integer goodTyreQuantity,
             Integer rejectedTyreQuantity,
@@ -573,6 +620,10 @@ public final class ApiModels {
     public record PressStatusRequest(
             @NotNull PressStatus status,
             String reason
+    ) {}
+
+    public record UpdatePressItemRequest(
+            @Size(max = 100) String itemCode
     ) {}
 
     public record ReceiveCartRequest(
@@ -791,6 +842,33 @@ public final class ApiModels {
             long rejectedTyres,
             long rejectedBlanks,
             long downtimeMinutes
+    ) {}
+
+    public record MixingReportRow(
+            Long id,
+            String batchNumber,
+            String recipeCode,
+            String revisionNumber,
+            BigDecimal plannedQuantityKg,
+            BigDecimal actualOutputQuantityKg,
+            String machine,
+            UserView officer,
+            String officerEmployeeId,
+            LocalDate productionDate,
+            ProductionShift shift,
+            LocalDateTime stage1StartTime,
+            LocalDateTime stage1EndTime,
+            LocalDateTime stage2StartTime,
+            LocalDateTime stage2EndTime,
+            LabDecision laboratoryDecision,
+            ReleaseStatus releaseStatus,
+            BatchStatus status
+    ) {}
+
+    public record ProductionReportRecords(
+            List<MixingReportRow> mixingRecords,
+            List<BlankingBatchView> blankingRecords,
+            List<MouldingProductionRecordView> mouldingRecords
     ) {}
 
     public record ProductionManagerSummary(

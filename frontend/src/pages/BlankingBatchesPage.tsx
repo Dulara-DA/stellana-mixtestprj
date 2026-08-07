@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useState, type FormEvent } from 'react'
 import { CheckCircle2, Factory, Play, Plus } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { EmptyState } from '../components/EmptyState'
@@ -13,13 +13,11 @@ const TOPICS = ['/topic/blanking'] as const
 
 const initialForm = {
   batchNumber: '',
-  mixingBatchNumber: '',
   materialCode: '',
   materialConsumedKg: '',
   itemCode: '',
   millOperator: '',
   preformerOperator: '',
-  averageBlankWeightGrams: '',
   notes: '',
   startImmediately: false,
 }
@@ -58,15 +56,6 @@ export function BlankingBatchesPage() {
     } catch (reason) { setError(displayError(reason)) }
   }, [])
   const connected = useRealtimeRefresh(load, TOPICS)
-  const expectedBlankQuantity = useMemo(() => {
-    const issuedKg = Number(form.materialConsumedKg)
-    const averageGrams = Number(form.averageBlankWeightGrams)
-    return issuedKg > 0 && averageGrams > 0 ? (issuedKg * 1000) / averageGrams : 0
-  }, [form.averageBlankWeightGrams, form.materialConsumedKg])
-  const expectedWhole = Math.floor(expectedBlankQuantity)
-  const fractionalExpected = expectedBlankQuantity > 0
-    && Math.abs(expectedBlankQuantity - expectedWhole) > 0.000001
-
   const create = async (event: FormEvent) => {
     event.preventDefault()
     setBusy(true)
@@ -76,9 +65,8 @@ export function BlankingBatchesPage() {
         method: 'POST',
         body: JSON.stringify({
           ...form,
+          mixingBatchNumber: form.batchNumber,
           materialConsumedKg: Number(form.materialConsumedKg),
-          plannedProductionQuantity: expectedWhole,
-          averageBlankWeightGrams: Number(form.averageBlankWeightGrams),
         }),
       })
       setForm(initialForm)
@@ -125,7 +113,7 @@ export function BlankingBatchesPage() {
       <PageHeader
         eyebrow="Blank production"
         title="Blanking batches"
-        description="Temporary manual Mixing-batch entry is enabled until the laboratory approval workflow is introduced. Expected pieces use issued kg and average blank weight."
+        description="Temporary manual Mixing-batch entry is enabled until the laboratory approval workflow is introduced. Actual blank quantities are recorded when production is completed."
         actions={<LiveIndicator connected={connected} />}
       />
       {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
@@ -135,15 +123,13 @@ export function BlankingBatchesPage() {
         <form onSubmit={create} className="card mb-7 p-5 sm:p-6">
           <div className="mb-5 flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-blue-100 text-process"><Plus size={21} /></div><div><h2 className="font-black text-ink">Create blanking batch</h2><p className="text-xs text-slate-500">Production date, shift, employee ID and creation time come from the server.</p></div></div>
           <p className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-            Temporary prototype mode: enter the physical Mixing batch and compound code manually.
+            Temporary prototype mode: enter the physical Batch No. and compound code manually.
             Laboratory approval will be connected later.
           </p>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <label><span className="label">Blanking batch no.</span><input className="field" required value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} placeholder="BLK-2026-001" /></label>
-            <label><span className="label">Mixing batch no.</span><input className="field" required value={form.mixingBatchNumber} onChange={(e) => setForm({ ...form, mixingBatchNumber: e.target.value })} placeholder="6160" /></label>
+            <label><span className="label">Batch No.</span><input className="field" required value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} placeholder="6160" /></label>
             <label><span className="label">Compound / material code</span><input className="field" required value={form.materialCode} onChange={(e) => setForm({ ...form, materialCode: e.target.value })} placeholder="A-96-50" /></label>
             <label><span className="label">Compound issued (kg)</span><input className="field" required min="0.001" step="0.001" type="number" value={form.materialConsumedKg} onChange={(e) => setForm({ ...form, materialConsumedKg: e.target.value })} /></label>
-            <label><span className="label">Average blank weight (g)</span><input className="field" required min="0.001" step="0.001" type="number" value={form.averageBlankWeightGrams} onChange={(e) => setForm({ ...form, averageBlankWeightGrams: e.target.value })} /></label>
             <label><span className="label">Operator</span><input className="field bg-slate-50" value={`${user?.fullName} · ${user?.employeeId ?? 'ID TBC'}`} disabled /></label>
             <label><span className="label">Item code</span><input className="field" required value={form.itemCode} onChange={(e) => setForm({ ...form, itemCode: e.target.value })} placeholder="UG 200×50" /></label>
             <label><span className="label">Mill operator</span><input className="field" list="blanking-operator-options" required value={form.millOperator} onChange={(e) => setForm({ ...form, millOperator: e.target.value })} placeholder="Select EMP.NO - Name" autoComplete="off" /><span className="mt-1 block text-xs text-slate-500">Select an entered employee or type a name.</span></label>
@@ -153,11 +139,9 @@ export function BlankingBatchesPage() {
                 <option key={operator.employeeId} value={`${operator.employeeId} - ${operator.fullName}`} />
               ))}
             </datalist>
-            <div className="rounded-xl bg-blue-50 p-3"><span className="label">Expected blanks</span><p className="text-xl font-black text-process">{expectedBlankQuantity ? expectedBlankQuantity.toFixed(3) : '—'}</p><p className="text-xs text-slate-500">{expectedWhole} whole pieces</p></div>
             <label className="md:col-span-2"><span className="label">Notes (optional)</span><input className="field" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label>
             <label className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 px-3"><input type="checkbox" checked={form.startImmediately} onChange={(e) => setForm({ ...form, startImmediately: e.target.checked })} /><span className="text-sm font-bold">Record IN now</span></label>
           </div>
-          {fractionalExpected && <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">Expected output is fractional ({expectedBlankQuantity.toFixed(3)}). The system records the exact decimal and uses {expectedWhole} whole pieces without silently rounding up.</p>}
           <div className="mt-5 flex justify-end"><button className="btn-primary" disabled={busy}>{busy ? 'Creating…' : 'Create batch'}</button></div>
         </form>
       )}
@@ -165,18 +149,18 @@ export function BlankingBatchesPage() {
       {batches.length === 0 ? <EmptyState title="No blanking batches" message="Create the first batch from a passed, released Mixing material batch." /> : (
         <div className="table-shell">
           <table>
-            <thead><tr><th>Batch / source</th><th>Official shift</th><th>Quantities</th><th>IN / OUT</th><th>Operator</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th>Batch No. / compound</th><th>Official shift</th><th>Quantities</th><th>IN / OUT</th><th>Operator</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>{batches.map((batch) => (
               <tr key={batch.id}>
-                <td><p className="font-black text-ink">{batch.batchNumber}</p><p className="mt-1 text-xs">{batch.mixingBatchNumber} · {batch.materialCode}</p></td>
+                <td><p className="font-black text-ink">{batch.batchNumber}</p><p className="mt-1 text-xs">{batch.materialCode}</p></td>
                 <td>{batch.productionDate}<p className="text-xs text-slate-500">{batch.shift.replace('_', ' ')}</p></td>
-                <td>{batch.materialConsumedKg} kg<p className="text-xs text-slate-500">{batch.actualGoodBlankQuantity ?? 0}/{batch.expectedWholeBlankQuantity ?? batch.plannedProductionQuantity} good blanks · {batch.rejectedQuantity} rejected</p><p className="text-xs text-slate-500">{batch.actualUsedCompoundWeightKg} kg used · {batch.remainingCompoundWeightKg} kg remaining</p></td>
+                <td>{batch.materialConsumedKg} kg<p className="text-xs text-slate-500">{batch.actualGoodBlankQuantity ?? 0} good blanks · {batch.rejectedQuantity} rejected</p><p className="text-xs text-slate-500">{batch.actualUsedCompoundWeightKg} kg used · {batch.remainingCompoundWeightKg} kg remaining</p></td>
                 <td>{formatDateTime(batch.startTime)}<p className="mt-1 text-xs text-slate-500">{formatDateTime(batch.endTime)}</p></td>
                 <td>{batch.operator.fullName}<p className="text-xs text-slate-500">{batch.operatorEmployeeId}</p></td>
                 <td><StatusBadge status={batch.status} /></td>
                 <td>
                   {canOperate && batch.status === 'PLANNED' && <button className="btn-primary" onClick={() => start(batch.id)}><Play size={16} /> Record IN</button>}
-                  {canOperate && batch.status === 'IN_PROGRESS' && <button className="btn-primary" onClick={() => setCompletion({ ...emptyCompletion, id: batch.id, actualGoodBlankQuantity: String(batch.expectedWholeBlankQuantity ?? batch.plannedProductionQuantity) })}><CheckCircle2 size={16} /> Complete</button>}
+                  {canOperate && batch.status === 'IN_PROGRESS' && <button className="btn-primary" onClick={() => setCompletion({ ...emptyCompletion, id: batch.id })}><CheckCircle2 size={16} /> Complete</button>}
                   {!['PLANNED', 'IN_PROGRESS'].includes(batch.status) && <span className="text-xs text-slate-400">Recorded</span>}
                 </td>
               </tr>

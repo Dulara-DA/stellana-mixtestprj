@@ -7,9 +7,9 @@ import { PageHeader } from '../components/PageHeader'
 import { StatusBadge } from '../components/StatusBadge'
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh'
 import { api, displayError, formatDateTime } from '../lib/api'
-import type { BlankingBatch, BlankingCart, MaterialShortage, Press } from '../types'
+import type { BlankingBatch, BlankingCart, Press } from '../types'
 
-const TOPICS = ['/topic/blanking', '/topic/shortages'] as const
+const TOPICS = ['/topic/blanking'] as const
 
 export function BlankingCartsPage() {
   const { user } = useAuth()
@@ -17,28 +17,30 @@ export function BlankingCartsPage() {
   const [batches, setBatches] = useState<BlankingBatch[]>([])
   const [carts, setCarts] = useState<BlankingCart[]>([])
   const [presses, setPresses] = useState<Press[]>([])
-  const [shortages, setShortages] = useState<MaterialShortage[]>([])
-  const [form, setForm] = useState({ cartNumber: '', blankingBatchId: '', quantity: '', destinationPressId: '', shortageRequestId: '', blankingNote: '' })
+  const [form, setForm] = useState({ cartNumber: '', blankingBatchId: '', quantity: '', averageBlankWeightGrams: '', destinationPressId: '', blankingNote: '' })
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
   const load = useCallback(async () => {
     try {
-      const [batchData, cartData, pressData, shortageData] = await Promise.all([
+      const [batchData, cartData, pressData] = await Promise.all([
         api<BlankingBatch[]>('/api/blanking/batches'),
         api<BlankingCart[]>('/api/blanking/carts'),
         api<Press[]>('/api/moulding/presses'),
-        api<MaterialShortage[]>('/api/shortages'),
       ])
       setBatches(batchData)
       setCarts(cartData)
       setPresses(pressData)
-      setShortages(shortageData)
       setError('')
     } catch (reason) { setError(displayError(reason)) }
   }, [])
   const connected = useRealtimeRefresh(load, TOPICS)
   const selected = useMemo(() => batches.find((item) => item.id === Number(form.blankingBatchId)), [batches, form.blankingBatchId])
+  const wholeCartBlankWeightKg = useMemo(() => {
+    const quantity = Number(form.quantity)
+    const blankWeightGrams = Number(form.averageBlankWeightGrams)
+    return quantity > 0 && blankWeightGrams > 0 ? (blankWeightGrams * quantity) / 1000 : null
+  }, [form.averageBlankWeightGrams, form.quantity])
 
   const create = async (event: FormEvent) => {
     event.preventDefault()
@@ -49,11 +51,11 @@ export function BlankingCartsPage() {
           ...form,
           blankingBatchId: Number(form.blankingBatchId),
           quantity: Number(form.quantity),
+          averageBlankWeightGrams: Number(form.averageBlankWeightGrams),
           destinationPressId: Number(form.destinationPressId),
-          shortageRequestId: form.shortageRequestId ? Number(form.shortageRequestId) : null,
         }),
       })
-      setForm({ cartNumber: '', blankingBatchId: '', quantity: '', destinationPressId: '', shortageRequestId: '', blankingNote: '' })
+      setForm({ cartNumber: '', blankingBatchId: '', quantity: '', averageBlankWeightGrams: '', destinationPressId: '', blankingNote: '' })
       setMessage('Cart prepared. Blanks have been reserved from the batch inventory.')
       await load()
     } catch (reason) { setError(displayError(reason)) }
@@ -93,7 +95,6 @@ export function BlankingCartsPage() {
     } catch (reasonValue) { setError(displayError(reasonValue)) }
   }
 
-  const openShortages = shortages.filter((item) => !['FULFILLED', 'CANCELLED'].includes(item.status))
   return (
     <div>
       <PageHeader
@@ -108,13 +109,18 @@ export function BlankingCartsPage() {
       {canOperate && (
         <form onSubmit={create} className="card mb-7 p-5 sm:p-6">
           <div className="mb-5 flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-blue-100 text-process"><PackagePlus size={21} /></div><div><h2 className="font-black">Prepare a cart</h2><p className="text-xs text-slate-500">Only completed batches with available good blanks can supply a cart.</p></div></div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-7">
             <label><span className="label">Cart number</span><input className="field" required value={form.cartNumber} onChange={(e) => setForm({ ...form, cartNumber: e.target.value })} placeholder="CART-001" /></label>
             <label className="xl:col-span-2"><span className="label">Blanking batch</span><select className="field" required value={form.blankingBatchId} onChange={(e) => setForm({ ...form, blankingBatchId: e.target.value })}><option value="">Select source</option>{batches.filter((batch) => batch.availableGoodBlankQuantity > 0).map((batch) => <option key={batch.id} value={batch.id}>{batch.batchNumber} · {batch.materialCode} · {batch.availableGoodBlankQuantity} available</option>)}</select></label>
-            <label><span className="label">Blank quantity</span><input className="field" required type="number" min="1" max={selected?.availableGoodBlankQuantity} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></label>
+            <label><span className="label">No. of blanks</span><input className="field" required type="number" min="1" max={selected?.availableGoodBlankQuantity} value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} placeholder="100" /></label>
+            <label><span className="label">One blank weight (g)</span><input className="field" required type="number" min="0.001" step="0.001" value={form.averageBlankWeightGrams} onChange={(e) => setForm({ ...form, averageBlankWeightGrams: e.target.value })} placeholder="100.000" /></label>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3" aria-live="polite">
+              <p className="label">Whole blanks weight of cart</p>
+              <p className="mt-2 text-xl font-black text-process">{wholeCartBlankWeightKg == null ? '—' : wholeCartBlankWeightKg.toFixed(3)} <span className="text-xs text-slate-500">kg</span></p>
+              <p className="mt-1 text-[11px] text-slate-500">(blank grams × no. of blanks) ÷ 1000</p>
+            </div>
             <label><span className="label">Destination press</span><select className="field" required value={form.destinationPressId} onChange={(e) => setForm({ ...form, destinationPressId: e.target.value })}><option value="">Select press</option>{presses.filter((press) => press.active).map((press) => <option key={press.id} value={press.id}>{press.pressNumber} · {press.pressName}</option>)}</select></label>
-            <label><span className="label">Link shortage (optional)</span><select className="field" value={form.shortageRequestId} onChange={(e) => setForm({ ...form, shortageRequestId: e.target.value })}><option value="">No shortage link</option>{openShortages.map((request) => <option key={request.id} value={request.id}>{request.requestNumber} · {request.pressNumber} · {request.requestedBlankQuantity}</option>)}</select></label>
-            <label className="md:col-span-2 xl:col-span-6"><span className="label">Blanking note</span><input className="field" value={form.blankingNote} onChange={(e) => setForm({ ...form, blankingNote: e.target.value })} /></label>
+            <label className="md:col-span-2 xl:col-span-7"><span className="label">Blanking note</span><input className="field" value={form.blankingNote} onChange={(e) => setForm({ ...form, blankingNote: e.target.value })} /></label>
           </div>
           <div className="mt-5 flex justify-end"><button className="btn-primary"><PackagePlus size={18} /> Prepare cart</button></div>
         </form>
@@ -128,7 +134,7 @@ export function BlankingCartsPage() {
               <tr key={cart.id}>
                 <td><p className="font-black text-ink">{cart.cartNumber}</p><p className="text-xs">{cart.itemCode ?? 'Item TBC'} · {formatDateTime(cart.createdAt)}</p></td>
                 <td>{cart.blankingBatchNumber}<p className="text-xs text-slate-500">{cart.mixingBatchNumber} · {cart.materialCode}</p></td>
-                <td>{cart.quantity} pieces<p className="text-xs text-slate-500">{cart.materialWeightKg ?? '—'} kg · {cart.remainingQuantity} remaining · {cart.returnedQuantity} returned</p></td>
+                <td>{cart.quantity} pieces<p className="text-xs text-slate-500">{cart.materialWeightKg ?? '—'} kg · {cart.averageBlankWeightGrams ?? '—'} g/blank</p><p className="text-xs text-slate-500">{cart.remainingQuantity} remaining · {cart.returnedQuantity} returned</p></td>
                 <td>{cart.destinationPressNumber}<p className="text-xs text-slate-500">{cart.destinationPressName}</p></td>
                 <td>{cart.status === 'HELD' ? <><span className="font-bold text-amber-700">Held</span><p className="text-xs text-slate-500">{cart.holdReason} · {formatDateTime(cart.heldAt)}</p></> : formatDateTime(cart.dispatchedAt)}</td>
                 <td><StatusBadge status={cart.status} /></td>

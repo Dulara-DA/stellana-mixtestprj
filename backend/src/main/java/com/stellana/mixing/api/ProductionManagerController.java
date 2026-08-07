@@ -3,6 +3,7 @@ package com.stellana.mixing.api;
 import com.stellana.mixing.api.ApiModels.ProductionManagerSummary;
 import com.stellana.mixing.api.ApiModels.ProductionGenealogyView;
 import com.stellana.mixing.domain.ProductionShift;
+import com.stellana.mixing.domain.ProductionReportSection;
 import com.stellana.mixing.service.CombinedProductionPdfService;
 import com.stellana.mixing.service.ProductionManagerService;
 import lombok.RequiredArgsConstructor;
@@ -45,8 +46,26 @@ public class ProductionManagerController {
                 blankingBatch, mixingBatch, cart, material);
     }
 
+    @GetMapping("/records")
+    public ApiModels.ProductionReportRecords records(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) ProductionShift shift,
+            @RequestParam(required = false) Long pressId,
+            @RequestParam(required = false) Long operatorId,
+            @RequestParam(required = false) String blankingBatch,
+            @RequestParam(required = false) String mixingBatch,
+            @RequestParam(required = false) String cart,
+            @RequestParam(required = false) String material
+    ) {
+        return productionManagerService.records(
+                fromDate, toDate, shift, pressId, operatorId,
+                blankingBatch, mixingBatch, cart, material);
+    }
+
     @GetMapping(value = "/report.pdf", produces = MediaType.APPLICATION_PDF_VALUE)
     public ResponseEntity<byte[]> combinedPdf(
+            @RequestParam(defaultValue = "COMBINED") ProductionReportSection section,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
             @RequestParam(required = false) ProductionShift shift,
@@ -58,6 +77,7 @@ public class ProductionManagerController {
             @RequestParam(required = false) String material
     ) {
         CombinedProductionPdfService.GeneratedPdf report = combinedProductionPdfService.generate(
+                section,
                 fromDate, toDate, shift, pressId, operatorId,
                 blankingBatch, mixingBatch, cart, material);
         return ResponseEntity.ok()

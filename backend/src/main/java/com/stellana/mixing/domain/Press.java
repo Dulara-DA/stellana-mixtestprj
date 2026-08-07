@@ -59,6 +59,9 @@ public class Press extends BaseEntity {
     @JoinColumn(name = "current_blanking_batch_id")
     private BlankingBatch currentBlankingBatch;
 
+    @Column(length = 100)
+    private String currentItemCode;
+
     private LocalDateTime lastActivityAt;
 
     @Column(nullable = false)

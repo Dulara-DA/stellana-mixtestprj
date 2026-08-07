@@ -7,6 +7,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { api, humanize } from '../lib/api'
 import type { ShiftContext } from '../types'
+import { BrandLogo } from './BrandLogo'
 
 type NavItem = { to: string; label: string; icon: typeof Activity }
 
@@ -93,10 +94,10 @@ export function Shell() {
     <div className="min-h-screen bg-slate-100">
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-72 flex-col bg-ink text-white lg:flex">
         <div className="border-b border-white/10 px-6 py-6">
-          <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-xl bg-safety text-ink"><Activity size={24} strokeWidth={2.6} /></div>
-            <div><p className="text-lg font-black tracking-tight">STELLANA</p><p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-400">{sectionName} Control</p></div>
+          <div className="rounded-xl bg-white px-3 py-2 shadow-sm">
+            <BrandLogo className="h-auto w-full" eager />
           </div>
+          <p className="mt-3 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{sectionName} Control</p>
         </div>
         <nav className="flex-1 overflow-y-auto px-3 py-5" aria-label={`${sectionName} navigation`}>
           <NavLink to="/" className="mb-4 flex min-h-12 items-center gap-3 rounded-xl border border-white/10 px-3.5 text-sm font-bold text-slate-300 hover:bg-white/10 hover:text-white"><Grid3X3 size={19} /> Select section</NavLink>
@@ -115,7 +116,7 @@ export function Shell() {
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-6 lg:h-18 lg:px-8">
             <div className="flex min-w-0 items-center gap-3">
-              <NavLink to="/" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-ink text-safety lg:hidden"><Activity size={22} /></NavLink>
+              <NavLink to="/" className="flex h-11 w-20 shrink-0 items-center rounded-xl border border-slate-200 bg-white p-1 lg:hidden" aria-label="Select production section"><BrandLogo className="h-full w-full" eager /></NavLink>
               <div className="min-w-0"><p className="truncate text-sm font-black text-ink">{sectionName} · {currentLabel}</p><p className="truncate text-xs text-slate-500">{shift ? `${humanize(shift.shift)} · ${shift.productionDate}` : 'Production Tracking'}</p></div>
             </div>
             <button onClick={logout} className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200 text-slate-600 lg:hidden" aria-label="Sign out"><LogOut size={19} /></button>

@@ -3,6 +3,7 @@ package com.stellana.mixing.service;
 import com.stellana.mixing.api.ApiModels.BatchTransitionRequest;
 import com.stellana.mixing.api.ApiModels.BatchView;
 import com.stellana.mixing.api.ApiModels.CreateBatchRequest;
+import com.stellana.mixing.api.ApiModels.ScheduleBatchRequest;
 import com.stellana.mixing.api.ApiModels.StatusHistoryView;
 import com.stellana.mixing.domain.*;
 import com.stellana.mixing.exception.BusinessRuleException;
@@ -103,6 +104,15 @@ public class BatchService {
         if (officer.getRole() != Role.MIXING_OFFICER) {
             throw new BusinessRuleException("The assigned user must be a Mixing Officer.");
         }
+        validateSchedulePair(request.plannedStartTime(), request.targetCompletionTime());
+        boolean hasSchedule = request.plannedStartTime() != null;
+        if (hasSchedule && !isManagerOrAdmin(actor)) {
+            throw new BusinessRuleException("Only a Manager or System Administrator can schedule a batch.");
+        }
+        if (hasSchedule) {
+            requireConflictConfirmation(null, officer, request.machine(), request.plannedStartTime(),
+                    request.targetCompletionTime(), request.confirmScheduleConflicts(), request.scheduleConflictReason());
+        }
         ProductionBatch source = request.reprocessingSourceBatchId() == null ? null
                 : requireBatch(request.reprocessingSourceBatchId());
         ProductionBatch value = ProductionBatch.builder()
@@ -111,6 +121,13 @@ public class BatchService {
                 .plannedQuantityKg(request.plannedQuantityKg())
                 .machine(request.machine().trim())
                 .assignedOfficer(officer)
+                .plannedStartTime(request.plannedStartTime())
+                .targetCompletionTime(request.targetCompletionTime())
+                .productionPriority(request.productionPriority() == null
+                        ? ProductionPriority.NORMAL : request.productionPriority())
+                .scheduleNotes(trimToNull(request.scheduleNotes()))
+                .scheduledBy(hasSchedule ? actor : null)
+                .scheduledAt(hasSchedule ? LocalDateTime.now() : null)
                 .status(BatchStatus.PLANNED)
                 .traceabilityCode(UUID.randomUUID().toString())
                 .reprocessingSourceBatch(source)
@@ -118,11 +135,64 @@ public class BatchService {
         ProductionBatch saved = batchRepository.save(value);
         recordHistory(saved, null, BatchStatus.PLANNED, actor, "Batch created");
         auditService.record(actor, "CREATE_BATCH", "ProductionBatch", saved.getId(), null,
-                saved.getBatchNumber() + " / " + revision.getRecipe().getRecipeCode() + " rev " + revision.getRevisionNumber(),
+                saved.getBatchNumber() + " / " + revision.getRecipe().getRecipeCode() + " rev " + revision.getRevisionNumber()
+                        + (hasSchedule ? " / " + scheduleDescription(saved) : "")
+                        + (Boolean.TRUE.equals(request.confirmScheduleConflicts()) && StringUtils.hasText(request.scheduleConflictReason())
+                        ? " / CONFLICT CONFIRMED: " + request.scheduleConflictReason().trim() : ""),
                 saved.getId(), revision.getRecipe().getId());
         notificationService.notifyUser(officer, NotificationType.BATCH_CHANGED, "Batch assigned",
-                saved.getBatchNumber() + " has been assigned to you.", "BATCH", saved.getId());
+                saved.getBatchNumber() + " has been assigned to you"
+                        + (hasSchedule ? " for " + saved.getPlannedStartTime() : "") + ".", "BATCH", saved.getId());
         realtimeEventService.dashboardChanged("BATCH_CREATED", saved.getId(), saved.getBatchNumber() + " created");
+        return batch(saved);
+    }
+
+    @Transactional
+    public BatchView schedule(Long id, ScheduleBatchRequest request) {
+        UserAccount actor = currentUserService.requireCurrentUser();
+        if (!isManagerOrAdmin(actor)) {
+            throw new BusinessRuleException("Only a Manager or System Administrator can schedule a batch.");
+        }
+        ProductionBatch value = requireBatch(id);
+        if (value.getStatus() == BatchStatus.CANCELLED || value.getStage2CompletedAt() != null) {
+            throw new BusinessRuleException("A cancelled or completed batch cannot be rescheduled.");
+        }
+        if (value.getStage1StartedAt() != null) {
+            throw new BusinessRuleException("This batch has already started. Its production schedule can no longer be reassigned.");
+        }
+        validateSchedulePair(request.plannedStartTime(), request.targetCompletionTime());
+        UserAccount officer = userAccountRepository.findById(request.assignedOfficerId())
+                .filter(UserAccount::isActive)
+                .orElseThrow(() -> new NotFoundException("Assigned officer not found or inactive."));
+        if (officer.getRole() != Role.MIXING_OFFICER) {
+            throw new BusinessRuleException("The assigned user must be a Mixing Officer.");
+        }
+        requireConflictConfirmation(value.getId(), officer, request.machine(), request.plannedStartTime(),
+                request.targetCompletionTime(), request.confirmScheduleConflicts(), request.scheduleConflictReason());
+
+        String previous = scheduleDescription(value);
+        value.setPlannedStartTime(request.plannedStartTime());
+        value.setTargetCompletionTime(request.targetCompletionTime());
+        value.setAssignedOfficer(officer);
+        value.setMachine(request.machine().trim());
+        value.setProductionPriority(request.productionPriority() == null
+                ? ProductionPriority.NORMAL : request.productionPriority());
+        value.setScheduleNotes(trimToNull(request.scheduleNotes()));
+        value.setScheduledBy(actor);
+        value.setScheduledAt(LocalDateTime.now());
+        ProductionBatch saved = batchRepository.save(value);
+        String next = scheduleDescription(saved)
+                + (Boolean.TRUE.equals(request.confirmScheduleConflicts()) && StringUtils.hasText(request.scheduleConflictReason())
+                ? " / CONFLICT CONFIRMED: " + request.scheduleConflictReason().trim() : "");
+        auditService.record(actor, previous.equals("Unscheduled") ? "SCHEDULE_BATCH" : "RESCHEDULE_BATCH",
+                "ProductionBatch", saved.getId(), previous, next,
+                saved.getId(), saved.getRecipeRevision().getRecipe().getId());
+        notificationService.notifyUser(officer, NotificationType.BATCH_CHANGED,
+                previous.equals("Unscheduled") ? "Batch scheduled" : "Batch schedule updated",
+                saved.getBatchNumber() + " is scheduled from " + saved.getPlannedStartTime()
+                        + " to " + saved.getTargetCompletionTime() + ".", "BATCH", saved.getId());
+        realtimeEventService.dashboardChanged("BATCH_SCHEDULE_CHANGED", saved.getId(),
+                saved.getBatchNumber() + " schedule updated");
         return batch(saved);
     }
 
@@ -147,13 +217,35 @@ public class BatchService {
                 && !StringUtils.hasText(request.reason())) {
             throw new BusinessRuleException("A reason is required for stopped, cancelled, or held batches.");
         }
-        if (target == BatchStatus.RELEASED_TO_BLANKING && value.getLaboratoryStatus() != LabDecision.PASS) {
-            throw new BusinessRuleException("Only a laboratory-passed batch can be released to blanking.");
+        boolean temporaryLabBypass = target == BatchStatus.RELEASED_TO_BLANKING
+                && value.getLaboratoryStatus() != LabDecision.PASS;
+        if (temporaryLabBypass) {
+            if (previous != BatchStatus.STAGE_2_COMPLETED
+                    || value.getLaboratoryStatus() != LabDecision.PENDING) {
+                throw new BusinessRuleException(
+                        "Temporary release without laboratory sampling is allowed only immediately after Stage 2 completion.");
+            }
+            if (!Boolean.TRUE.equals(request.temporaryLabBypass())) {
+                throw new BusinessRuleException(
+                        "Confirm the temporary laboratory bypass before releasing this batch to Blanking.");
+            }
+            if (value.getStage2CompletedAt() == null) {
+                throw new BusinessRuleException("Stage 2 must be completed before temporary release to Blanking.");
+            }
+            if (!StringUtils.hasText(request.reason())) {
+                throw new BusinessRuleException("A reason is required for temporary release without laboratory sampling.");
+            }
         }
         if (target == BatchStatus.REPROCESSING && value.getLaboratoryStatus() != LabDecision.FAIL) {
             throw new BusinessRuleException("Only a failed batch can be sent for reprocessing.");
         }
         value.setStatus(target);
+        if (temporaryLabBypass) {
+            value.setTemporaryLabBypass(true);
+            value.setTemporaryLabBypassReason(request.reason().trim());
+            value.setTemporaryLabBypassApprovedBy(actor);
+            value.setTemporaryLabBypassApprovedAt(LocalDateTime.now());
+        }
         if (StringUtils.hasText(request.reason())) {
             value.setIssueOrStoppageReason(request.reason().trim());
         }
@@ -163,6 +255,12 @@ public class BatchService {
         auditService.record(actor, "CHANGE_BATCH_STATUS", "ProductionBatch", saved.getId(),
                 previous.name(), target.name() + (StringUtils.hasText(request.reason()) ? " — " + request.reason() : ""),
                 saved.getId(), saved.getRecipeRevision().getRecipe().getId());
+        if (temporaryLabBypass) {
+            auditService.record(actor, "TEMPORARY_RELEASE_WITHOUT_LAB", "ProductionBatch", saved.getId(),
+                    "Laboratory status " + saved.getLaboratoryStatus(),
+                    "Released to Blanking without lab sampling — " + saved.getTemporaryLabBypassReason(),
+                    saved.getId(), saved.getRecipeRevision().getRecipe().getId());
+        }
         realtimeEventService.dashboardChanged("BATCH_STATUS_CHANGED", saved.getId(),
                 saved.getBatchNumber() + " changed to " + target);
         if (target == BatchStatus.RELEASED_TO_BLANKING) {
@@ -221,6 +319,59 @@ public class BatchService {
         }
     }
 
+    private void validateSchedulePair(LocalDateTime start, LocalDateTime target) {
+        if ((start == null) != (target == null)) {
+            throw new BusinessRuleException("Planned start and target completion time must be entered together.");
+        }
+        if (start != null && !target.isAfter(start)) {
+            throw new BusinessRuleException("Target completion time must be after the planned start time.");
+        }
+    }
+
+    private void requireConflictConfirmation(Long excludedBatchId, UserAccount officer, String machine,
+                                             LocalDateTime start, LocalDateTime target,
+                                             Boolean confirmed, String confirmationReason) {
+        List<String> conflicts = batchRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(existing -> !Objects.equals(existing.getId(), excludedBatchId))
+                .filter(existing -> existing.getPlannedStartTime() != null && existing.getTargetCompletionTime() != null)
+                .filter(existing -> existing.getStage2CompletedAt() == null && existing.getStatus() != BatchStatus.CANCELLED)
+                .filter(existing -> start.isBefore(existing.getTargetCompletionTime())
+                        && target.isAfter(existing.getPlannedStartTime()))
+                .filter(existing -> existing.getAssignedOfficer().getId().equals(officer.getId())
+                        || existing.getMachine().equalsIgnoreCase(machine.trim()))
+                .map(existing -> existing.getBatchNumber() + " ("
+                        + existing.getPlannedStartTime() + " to " + existing.getTargetCompletionTime() + ")")
+                .limit(5)
+                .toList();
+        if (conflicts.isEmpty()) {
+            return;
+        }
+        String conflictMessage = "Schedule conflict with " + String.join(", ", conflicts) + ".";
+        if (!Boolean.TRUE.equals(confirmed)) {
+            throw new BusinessRuleException(conflictMessage + " Confirm the conflict and provide a reason to continue.");
+        }
+        if (!StringUtils.hasText(confirmationReason)) {
+            throw new BusinessRuleException(conflictMessage + " A confirmation reason is required.");
+        }
+    }
+
+    private boolean isManagerOrAdmin(UserAccount user) {
+        return List.of(Role.MANAGER, Role.SYSTEM_ADMIN).contains(user.getRole());
+    }
+
+    private String scheduleDescription(ProductionBatch value) {
+        if (value.getPlannedStartTime() == null || value.getTargetCompletionTime() == null) {
+            return "Unscheduled";
+        }
+        return value.getPlannedStartTime() + " to " + value.getTargetCompletionTime()
+                + " / " + value.getMachine() + " / " + value.getAssignedOfficer().getFullName()
+                + " / " + (value.getProductionPriority() == null ? ProductionPriority.NORMAL : value.getProductionPriority());
+    }
+
+    private String trimToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
     private void recordHistory(ProductionBatch batch, BatchStatus previous, BatchStatus target,
                                UserAccount actor, String reason) {
         historyRepository.save(BatchStatusHistory.builder()
@@ -268,7 +419,8 @@ public class BatchService {
         map.put(BatchStatus.STAGE_1_COMPLETED, Set.of(BatchStatus.READY_FOR_STAGE_2, BatchStatus.STAGE_2_IN_PROGRESS, BatchStatus.STOPPED));
         map.put(BatchStatus.READY_FOR_STAGE_2, Set.of(BatchStatus.STAGE_2_IN_PROGRESS, BatchStatus.STOPPED));
         map.put(BatchStatus.STAGE_2_IN_PROGRESS, Set.of(BatchStatus.STAGE_2_COMPLETED, BatchStatus.STOPPED));
-        map.put(BatchStatus.STAGE_2_COMPLETED, Set.of(BatchStatus.SAMPLE_SENT_TO_LAB, BatchStatus.STOPPED));
+        map.put(BatchStatus.STAGE_2_COMPLETED, Set.of(
+                BatchStatus.SAMPLE_SENT_TO_LAB, BatchStatus.RELEASED_TO_BLANKING, BatchStatus.STOPPED));
         map.put(BatchStatus.SAMPLE_SENT_TO_LAB, Set.of(BatchStatus.WAITING_FOR_LAB));
         map.put(BatchStatus.WAITING_FOR_LAB, Set.of(BatchStatus.LAB_PASSED, BatchStatus.LAB_FAILED, BatchStatus.ON_HOLD, BatchStatus.RETEST_REQUIRED));
         map.put(BatchStatus.LAB_PASSED, Set.of(BatchStatus.RELEASED_TO_BLANKING, BatchStatus.ON_HOLD));

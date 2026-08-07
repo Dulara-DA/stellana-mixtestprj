@@ -1,11 +1,11 @@
 import { useCallback, useState, type FormEvent } from 'react'
-import { AlertTriangle, Boxes, Download, Factory, GitBranch, LoaderCircle, Scale, Search, ShieldCheck, Truck } from 'lucide-react'
+import { AlertTriangle, Boxes, Download, Factory, FileText, GitBranch, LoaderCircle, Scale, Search, ShieldCheck, Truck } from 'lucide-react'
 import { LiveIndicator } from '../components/LiveIndicator'
 import { PageHeader } from '../components/PageHeader'
 import { StatusBadge } from '../components/StatusBadge'
 import { useRealtimeRefresh } from '../hooks/useRealtimeRefresh'
 import { api, displayError, downloadFile, formatDateTime, humanize } from '../lib/api'
-import type { ProductionGenealogy, ProductionManagerSummary } from '../types'
+import type { ProductionGenealogy, ProductionManagerSummary, ProductionReportRecords } from '../types'
 
 const TOPICS = ['/topic/production'] as const
 const today = () => new Date().toISOString().slice(0, 10)
@@ -26,14 +26,26 @@ const emptySummary: ProductionManagerSummary = {
   delayedCartTransfers: 0, pressesWaitingForBlanks: 0, presses: [], cartTransfers: [],
   operatorProductivity: [], recentRecords: [],
 }
+const emptyRecords: ProductionReportRecords = {
+  mixingRecords: [], blankingRecords: [], mouldingRecords: [],
+}
+type ReportSection = 'COMBINED' | 'MIXING' | 'BLANKING' | 'MOULDING'
+const reportLabels: Record<ReportSection, string> = {
+  COMBINED: 'Combined report',
+  MIXING: 'Mixing report',
+  BLANKING: 'Blanking report',
+  MOULDING: 'Moulding report',
+}
 
 export function ProductionManagerPage() {
   const [summary, setSummary] = useState<ProductionManagerSummary>(emptySummary)
+  const [records, setRecords] = useState<ProductionReportRecords>(emptyRecords)
   const [filters, setFilters] = useState({ fromDate: today(), toDate: today(), shift: '', pressId: '', operatorId: '', blankingBatch: '', mixingBatch: '', cart: '', material: '' })
   const [applied, setApplied] = useState(filters)
   const [error, setError] = useState('')
   const [downloadMessage, setDownloadMessage] = useState('')
   const [downloading, setDownloading] = useState(false)
+  const [reportSection, setReportSection] = useState<ReportSection>('COMBINED')
   const [genealogyBatch, setGenealogyBatch] = useState('')
   const [genealogy, setGenealogy] = useState<ProductionGenealogy | null>(null)
   const [tracing, setTracing] = useState(false)
@@ -41,7 +53,12 @@ export function ProductionManagerPage() {
   const load = useCallback(async () => {
     try {
       const params = reportParams(applied)
-      setSummary(await api<ProductionManagerSummary>(`/api/production-manager/summary?${params}`))
+      const [nextSummary, nextRecords] = await Promise.all([
+        api<ProductionManagerSummary>(`/api/production-manager/summary?${params}`),
+        api<ProductionReportRecords>(`/api/production-manager/records?${params}`),
+      ])
+      setSummary(nextSummary)
+      setRecords(nextRecords)
       setError('')
     } catch (reason) { setError(displayError(reason)) }
   }, [applied])
@@ -52,9 +69,11 @@ export function ProductionManagerPage() {
     setDownloadMessage('')
     try {
       const params = reportParams(applied)
+      params.set('section', reportSection)
+      const sectionName = reportSection.toLowerCase()
       const filename = await downloadFile(
         `/api/production-manager/report.pdf?${params}`,
-        `stellana-combined-production-report-${applied.fromDate}-to-${applied.toDate}.pdf`,
+        `stellana-${sectionName}-production-report-${applied.fromDate}-to-${applied.toDate}.pdf`,
       )
       setDownloadMessage(`${filename} downloaded successfully.`)
       setError('')
@@ -95,8 +114,8 @@ export function ProductionManagerPage() {
       <PageHeader
         eyebrow="Cross-section management"
         title="Mixing, Blanking and Moulding report"
-        description="Operational metrics and a combined PDF generated from persisted production records. No production limits or targets are invented."
-        actions={<div className="flex flex-wrap items-center gap-3"><LiveIndicator connected={connected} /><button type="button" className="btn-primary" disabled={downloading} onClick={() => void downloadPdf()}>{downloading ? <LoaderCircle className="animate-spin" size={17} /> : <Download size={17} />}{downloading ? 'Generating PDF...' : 'Download combined PDF'}</button></div>}
+        description="Review each production section in separate ordered rows, then download one section or the complete combined report."
+        actions={<div className="flex flex-wrap items-end gap-3"><LiveIndicator connected={connected} /><label><span className="label">PDF report</span><select className="field min-w-44" value={reportSection} onChange={(event) => setReportSection(event.target.value as ReportSection)}><option value="COMBINED">Combined - all sections</option><option value="MIXING">Mixing only</option><option value="BLANKING">Blanking only</option><option value="MOULDING">Moulding only</option></select></label><button type="button" className="btn-primary" disabled={downloading} onClick={() => void downloadPdf()}>{downloading ? <LoaderCircle className="animate-spin" size={17} /> : <Download size={17} />}{downloading ? 'Generating PDF...' : `Download ${reportLabels[reportSection]}`}</button></div>}
       />
       {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
       {downloadMessage && <div role="status" className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{downloadMessage}</div>}
@@ -148,19 +167,36 @@ export function ProductionManagerPage() {
 
       <div className="mb-6 card p-4"><p className="text-xs font-bold uppercase text-slate-500">Average cart transfer duration</p><p className="mt-2 text-2xl font-black">{summary.averageCartTransferMinutes} <span className="text-sm text-slate-500">minutes</span></p><p className="text-xs text-slate-500">Server dispatch timestamp to permanent Moulding receipt timestamp for the selected carts.</p></div>
 
-      <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-        <section className="card overflow-hidden">
-          <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">Live presses</h2><p className="text-xs text-slate-500">{summary.pressesWaitingForBlanks} waiting for blanks</p></div>
-          <div className="divide-y divide-slate-100">{summary.presses.map((press) => <div key={press.id} className="flex items-center justify-between gap-4 p-4"><div><p className="font-black">{press.pressNumber} · {press.pressName}</p><p className="text-xs text-slate-500">{press.availableBlankQuantity} blanks · {press.goodTyreQuantity} good tyres</p></div><StatusBadge status={press.status} /></div>)}</div>
-        </section>
-        <section className="table-shell">
-          <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">Recent production</h2><p className="text-xs text-slate-500">{summary.fromDate} to {summary.toDate}{summary.shift ? ` · ${humanize(summary.shift)}` : ''}</p></div>
-          <table>
-            <thead><tr><th>Press / cart</th><th>Operator</th><th>Output</th><th>Rejections</th><th>Time</th></tr></thead>
-            <tbody>{summary.recentRecords.map((record) => <tr key={record.id}><td><p className="font-black">{record.pressNumber}</p><p className="text-xs">{record.cartNumber} · {record.blankingBatchNumber}</p></td><td>{record.operator.fullName}<p className="text-xs">{record.operatorEmployeeId}</p></td><td>{record.goodTyreQuantity} good<p className="text-xs">{record.remainingBlankQuantity} remaining</p></td><td>{record.rejectedTyreQuantity} tyres / {record.rejectedBlankQuantity} blanks<p className="text-xs">{record.totalRejectedTyreWeightGrams} g</p></td><td>{formatDateTime(record.startTime)}<p className="text-xs">{formatDateTime(record.endTime)}</p></td></tr>)}</tbody>
-          </table>
-        </section>
-      </div>
+      <section className="card mb-6 overflow-hidden">
+        <div className="border-b border-slate-200 px-5 py-4"><h2 className="font-black">Live presses</h2><p className="text-xs text-slate-500">{summary.pressesWaitingForBlanks} waiting for blanks</p></div>
+        <div className="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-3">{summary.presses.map((press) => <div key={press.id} className="flex items-center justify-between gap-4 p-4"><div><p className="font-black">{press.pressNumber} · {press.pressName}</p><p className="text-xs text-slate-500">{press.availableBlankQuantity} blanks · {press.goodTyreQuantity} good tyres</p></div><StatusBadge status={press.status} /></div>)}</div>
+      </section>
+
+      <div className="mb-4 flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-blue-100 text-process"><FileText size={20} /></div><div><h2 className="text-xl font-black">Detailed production records</h2><p className="text-sm text-slate-500">Newest records appear first within each factory section for {summary.fromDate} to {summary.toDate}{summary.shift ? ` · ${humanize(summary.shift)}` : ''}.</p></div></div>
+
+      <section className="table-shell mb-6">
+        <div className="border-b border-blue-200 bg-blue-50 px-5 py-4"><h2 className="font-black text-blue-900">Mixing records</h2><p className="text-xs text-blue-700">{records.mixingRecords.length} batches · recipe revision, stages, laboratory and release status</p></div>
+        <table>
+          <thead><tr><th>#</th><th>Date / shift</th><th>Batch</th><th>Recipe</th><th>Quantity</th><th>Machine / officer</th><th>Stage 1 IN / OUT</th><th>Stage 2 IN / OUT</th><th>Lab / release</th><th>Status</th></tr></thead>
+          <tbody>{records.mixingRecords.length === 0 ? <tr><td colSpan={10} className="py-8 text-center text-slate-500">No Mixing records match the selected filters.</td></tr> : records.mixingRecords.map((record, index) => <tr key={record.id}><td className="font-bold text-slate-400">{index + 1}</td><td>{record.productionDate}<p className="text-xs">{humanize(record.shift)}</p></td><td className="font-black">{record.batchNumber}</td><td>{record.recipeCode}<p className="text-xs">Revision {record.revisionNumber}</p></td><td>{record.plannedQuantityKg} kg planned<p className="text-xs">{record.actualOutputQuantityKg ?? '—'} kg actual</p></td><td>{record.machine}<p className="text-xs">{record.officer.fullName} · {record.officerEmployeeId}</p></td><td>{formatDateTime(record.stage1StartTime)}<p className="text-xs">{formatDateTime(record.stage1EndTime)}</p></td><td>{formatDateTime(record.stage2StartTime)}<p className="text-xs">{formatDateTime(record.stage2EndTime)}</p></td><td><StatusBadge status={record.laboratoryDecision} /><p className="mt-1 text-xs">{humanize(record.releaseStatus)}</p></td><td><StatusBadge status={record.status} /></td></tr>)}</tbody>
+        </table>
+      </section>
+
+      <section className="table-shell mb-6">
+        <div className="border-b border-amber-200 bg-amber-50 px-5 py-4"><h2 className="font-black text-amber-900">Blanking records</h2><p className="text-xs text-amber-700">{records.blankingRecords.length} batches · compound usage, blank output and available balance</p></div>
+        <table>
+          <thead><tr><th>#</th><th>Date / shift</th><th>Blanking batch</th><th>Mixing / material</th><th>Plan / output</th><th>Good / rejected</th><th>Compound</th><th>Operator</th><th>IN / OUT</th><th>Status</th></tr></thead>
+          <tbody>{records.blankingRecords.length === 0 ? <tr><td colSpan={10} className="py-8 text-center text-slate-500">No Blanking records match the selected filters.</td></tr> : records.blankingRecords.map((record, index) => <tr key={record.id}><td className="font-bold text-slate-400">{index + 1}</td><td>{record.productionDate}<p className="text-xs">{humanize(record.shift)}</p></td><td className="font-black">{record.batchNumber}</td><td>{record.mixingBatchNumber}<p className="text-xs">{record.materialCode}</p></td><td>{record.plannedProductionQuantity} planned<p className="text-xs">{record.productionQuantity ?? '—'} output</p></td><td className="font-bold text-emerald-700">{record.actualGoodBlankQuantity} good<p className="text-xs text-red-700">{record.rejectedQuantity} rejected · {record.availableGoodBlankQuantity} available</p></td><td>{record.materialConsumedKg} kg issued<p className="text-xs">{record.actualUsedCompoundWeightKg} kg used</p></td><td>{record.operator.fullName}<p className="text-xs">{record.operatorEmployeeId}</p></td><td>{formatDateTime(record.startTime)}<p className="text-xs">{formatDateTime(record.endTime)}</p></td><td><StatusBadge status={record.status} /></td></tr>)}</tbody>
+        </table>
+      </section>
+
+      <section className="table-shell mb-6">
+        <div className="border-b border-emerald-200 bg-emerald-50 px-5 py-4"><h2 className="font-black text-emerald-900">Moulding records</h2><p className="text-xs text-emerald-700">{records.mouldingRecords.length} press entries · cart source, output, rejections and remaining blanks</p></div>
+        <table>
+          <thead><tr><th>#</th><th>Date / shift</th><th>Press / cart</th><th>Blanking / mixing</th><th>Operator</th><th>Received / remaining</th><th>Good</th><th>Rejected</th><th>IN / OUT</th><th>Status</th></tr></thead>
+          <tbody>{records.mouldingRecords.length === 0 ? <tr><td colSpan={10} className="py-8 text-center text-slate-500">No Moulding records match the selected filters.</td></tr> : records.mouldingRecords.map((record, index) => <tr key={record.id}><td className="font-bold text-slate-400">{index + 1}</td><td>{record.productionDate}<p className="text-xs">{humanize(record.shift)}</p></td><td><p className="font-black">{record.pressNumber}</p><p className="text-xs">{record.cartNumber}</p></td><td>{record.blankingBatchNumber}<p className="text-xs">{record.compoundBatchNumber}</p></td><td>{record.operator.fullName}<p className="text-xs">{record.operatorEmployeeId}</p></td><td>{record.quantityReceived} received<p className="text-xs">{record.remainingBlankQuantity} remaining</p></td><td className="font-bold text-emerald-700">{record.goodTyreQuantity}</td><td className="font-bold text-red-700">{record.rejectedTyreQuantity} tyres<p className="text-xs">{record.rejectedBlankQuantity} blanks · {record.totalRejectedTyreWeightGrams} g</p></td><td>{formatDateTime(record.startTime)}<p className="text-xs">{formatDateTime(record.endTime)}</p></td><td><StatusBadge status={record.status} /></td></tr>)}</tbody>
+        </table>
+      </section>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
         <section className="table-shell">

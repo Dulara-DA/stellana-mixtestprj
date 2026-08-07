@@ -145,6 +145,7 @@ class DownstreamProductionMockMvcTest {
                 .put("cartNumber", "CART-OVER-INVENTORY")
                 .put("blankingBatchId", batch.get("id").asLong())
                 .put("quantity", excessiveQuantity)
+                .put("averageBlankWeightGrams", 100)
                 .put("destinationPressId", presses.get(0).get("id").asLong())
                 .put("blankingNote", "Must be rejected by backend inventory validation.");
         mockMvc.perform(post("/api/blanking/carts")
@@ -205,12 +206,13 @@ class DownstreamProductionMockMvcTest {
                 .put("batchNumber", "BLK-ADMIN-CONTROL")
                 .put("approvedMaterialBatchId", approved.get("id").asLong())
                 .put("materialConsumedKg", 1)
-                .put("plannedProductionQuantity", 5)
                 .put("notes", "Administrator permission regression test.")
                 .put("startImmediately", false);
         JsonNode batch = postJson("/api/blanking/batches", adminToken, createBatch);
         long batchId = batch.get("id").asLong();
         assertThat(batch.get("status").asText()).isEqualTo("PLANNED");
+        assertThat(batch.get("averageBlankWeightGrams").isNull()).isTrue();
+        assertThat(batch.get("expectedBlankQuantity").isNull()).isTrue();
 
         JsonNode startedBatch = postJson("/api/blanking/batches/" + batchId + "/start",
                 adminToken, objectMapper.createObjectNode());
@@ -228,6 +230,7 @@ class DownstreamProductionMockMvcTest {
                         .put("cartNumber", "CART-ADMIN-CONTROL")
                         .put("blankingBatchId", batchId)
                         .put("quantity", 5)
+                        .put("averageBlankWeightGrams", 100)
                         .put("destinationPressId", press.get("id").asLong())
                         .put("blankingNote", "Administrator prepared cart."));
         long cartId = cart.get("id").asLong();
@@ -243,6 +246,14 @@ class DownstreamProductionMockMvcTest {
                 objectMapper.createObjectNode()
                         .put("pressId", press.get("id").asLong())
                         .put("cartId", cartId));
+        String mouldingOperatorToken = login("moulding.operator@stellana.local", "Moulding123!");
+        mockMvc.perform(post("/api/moulding/records/" + production.get("id").asLong() + "/complete")
+                        .header("Authorization", "Bearer " + mouldingOperatorToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(completion(4, 1, 0, 900, 0, ""))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(
+                        "Only the press-entry operator who started this record may complete it."));
         JsonNode completed = postJson("/api/moulding/records/" + production.get("id").asLong() + "/complete",
                 adminToken, completion(4, 1, 0, 900, 0, ""));
         assertThat(completed.get("status").asText()).isEqualTo("COMPLETED");
@@ -256,6 +267,22 @@ class DownstreamProductionMockMvcTest {
                         .put("priority", "NORMAL")
                         .put("message", "Administrator-created shortage request."));
         assertThat(shortage.get("status").asText()).isEqualTo("OPEN");
+    }
+
+    @Test
+    void mouldingOperatorCanSelectAndPersistTheOngoingPressItem() throws Exception {
+        String mouldingToken = login("moulding.operator@stellana.local", "Moulding123!");
+        JsonNode press = getJson("/api/moulding/presses", mouldingToken).get(0);
+
+        JsonNode updated = patchJson(
+                "/api/moulding/presses/" + press.get("id").asLong() + "/current-item",
+                mouldingToken,
+                objectMapper.createObjectNode().put("itemCode", "UG500x50"));
+
+        assertThat(updated.get("currentItemCode").asText()).isEqualTo("UG500x50");
+        JsonNode persisted = find(getJson("/api/moulding/presses", mouldingToken),
+                "id", press.get("id").asText());
+        assertThat(persisted.get("currentItemCode").asText()).isEqualTo("UG500x50");
     }
 
     private ObjectNode completion(

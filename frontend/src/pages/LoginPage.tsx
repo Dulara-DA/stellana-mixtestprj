@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
-import { Activity, ArrowRight, Factory, LockKeyhole, RadioTower } from 'lucide-react'
+import { ArrowRight, Factory, LockKeyhole, RadioTower } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { BrandLogo } from '../components/BrandLogo'
 import { displayError, SESSION_MESSAGE_KEY } from '../lib/api'
 
 export function LoginPage() {
@@ -37,14 +38,11 @@ export function LoginPage() {
         <div className="absolute -left-32 top-20 h-96 w-96 rounded-full border-[70px] border-white/[0.025]" />
         <div className="absolute bottom-[-14rem] right-[-8rem] h-[34rem] w-[34rem] rounded-full border-[90px] border-process/10" />
         <div className="relative z-10 flex w-full flex-col">
-          <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-xl bg-safety text-ink">
-              <Activity size={27} strokeWidth={2.8} />
+          <div>
+            <div className="inline-flex rounded-2xl bg-white px-4 py-3 shadow-lg shadow-black/10">
+              <BrandLogo className="h-auto w-56" eager />
             </div>
-            <div>
-              <p className="text-xl font-black tracking-tight">STELLANA</p>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Mixing Unit</p>
-            </div>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Production Tracking System</p>
           </div>
 
           <div className="my-auto max-w-2xl py-16">
@@ -85,7 +83,10 @@ export function LoginPage() {
       <section className="flex items-center justify-center bg-slate-100 p-5 sm:p-10 lg:p-12">
         <div className="w-full max-w-md">
           <div className="mb-9">
-            <div className="mb-5 grid h-12 w-12 place-items-center rounded-xl bg-blue-100 text-process">
+            <div className="mb-6 inline-flex rounded-2xl bg-white px-4 py-3 shadow-sm lg:hidden">
+              <BrandLogo className="h-auto w-48" eager />
+            </div>
+            <div className="mb-5 hidden h-12 w-12 place-items-center rounded-xl bg-blue-100 text-process lg:grid">
               <Factory size={25} />
             </div>
             <h2 className="text-3xl font-black tracking-tight text-ink">Production sign in</h2>

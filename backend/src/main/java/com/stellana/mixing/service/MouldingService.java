@@ -193,6 +193,9 @@ public class MouldingService {
         if (recordRepository.findFirstByCartIdAndEndTimeIsNull(cart.getId()).isPresent()) {
             throw new BusinessRuleException("This cart already has an active Moulding production record.");
         }
+        if (recordRepository.existsByPressIdAndEndTimeIsNull(press.getId())) {
+            throw new BusinessRuleException("This press already has an active production entry. Complete it before starting another.");
+        }
 
         ShiftService.ShiftContext shift = shiftService.current();
         MouldingProductionRecord saved = recordRepository.save(MouldingProductionRecord.builder()
@@ -226,9 +229,14 @@ public class MouldingService {
     @Transactional
     public MouldingProductionRecordView completeRecord(Long id, CompleteMouldingRecordRequest request) {
         UserAccount actor = currentUserService.requireCurrentUser();
-        MouldingProductionRecord record = requireRecord(id);
+        MouldingProductionRecord record = requireRecordForUpdate(id);
         if (record.getStatus() != MouldingRecordStatus.IN_PROGRESS || record.getEndTime() != null) {
             throw new BusinessRuleException("Only an active Moulding record can be completed.");
+        }
+        if (actor.getRole() == Role.MOULDING_OPERATOR
+                && !record.getOperator().getId().equals(actor.getId())) {
+            throw new BusinessRuleException(
+                    "Only the press-entry operator who started this record may complete it.");
         }
         validateDowntime(request.downtimeMinutes(), request.downtimeReason());
         int used = totalUsed(request.goodTyreQuantity(), request.rejectedTyreQuantity(),
@@ -326,7 +334,7 @@ public class MouldingService {
         if (!isManager(actor)) {
             throw new BusinessRuleException("Only a Manager or System Administrator may correct production records.");
         }
-        MouldingProductionRecord record = requireRecord(id);
+        MouldingProductionRecord record = requireRecordForUpdate(id);
         if (record.getStatus() != MouldingRecordStatus.COMPLETED) {
             throw new BusinessRuleException("Only a completed production record can be corrected.");
         }
@@ -428,8 +436,31 @@ public class MouldingService {
                 0);
     }
 
-    private MouldingProductionRecord requireRecord(Long id) {
-        return recordRepository.findById(id)
+    @Transactional
+    public PressView updateCurrentItem(Long id, UpdatePressItemRequest request) {
+        UserAccount actor = currentUserService.requireCurrentUser();
+        Press value = pressRepository.findByIdForUpdate(id)
+                .filter(Press::isActive)
+                .orElseThrow(() -> new NotFoundException("Press not found or inactive."));
+        String previous = value.getCurrentItemCode();
+        String currentItemCode = trimToNull(request.itemCode());
+        value.setCurrentItemCode(currentItemCode);
+        value.setCurrentOperator(actor);
+        value.setLastActivityAt(shiftService.now());
+        Press saved = pressRepository.save(value);
+        auditService.record(actor, "UPDATE_PRESS_CURRENT_ITEM", "Press", saved.getId(), previous,
+                currentItemCode, null, null);
+        realtimeEventService.productionChanged("MOULDING", "PRESS_CURRENT_ITEM_UPDATED", saved.getId(),
+                saved.getPressNumber() + " ongoing item changed to "
+                        + (currentItemCode == null ? "None" : currentItemCode));
+        return press(saved, shiftService.current().shift(),
+                blankingCartRepository.countByDestinationPressIdAndStatus(
+                        saved.getId(), BlankingCartStatus.DISPATCHED),
+                estimatedRequirement(saved.getId(), shortageRequestRepository.findAllByOrderByCreatedAtDesc()));
+    }
+
+    private MouldingProductionRecord requireRecordForUpdate(Long id) {
+        return recordRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new NotFoundException("Moulding production record not found."));
     }
 

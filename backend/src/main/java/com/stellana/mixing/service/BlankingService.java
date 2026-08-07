@@ -52,8 +52,16 @@ public class BlankingService {
         if (request.approvedMaterialBatchId() != null) {
             approved = approvedMaterialBatchRepository.findByIdForUpdate(request.approvedMaterialBatchId())
                     .orElseThrow(() -> new NotFoundException("Approved material batch not found."));
-            if (!approved.isActive() || approved.getLabStatus() != LabDecision.PASS) {
-                throw new BusinessRuleException("Only an active laboratory-passed material batch can enter Blanking.");
+            boolean laboratoryPassed = approved.getLabStatus() == LabDecision.PASS;
+            ProductionBatch mixingBatch = approved.getMixingBatch();
+            boolean temporaryLabBypass = mixingBatch != null
+                    && Boolean.TRUE.equals(mixingBatch.getTemporaryLabBypass())
+                    && mixingBatch.getLaboratoryStatus() == LabDecision.PENDING
+                    && mixingBatch.getStatus() == BatchStatus.RELEASED_TO_BLANKING
+                    && mixingBatch.getReleaseStatus() == ReleaseStatus.APPROVED_FOR_BLANKING;
+            if (!approved.isActive() || (!laboratoryPassed && !temporaryLabBypass)) {
+                throw new BusinessRuleException(
+                        "Only active laboratory-passed or explicitly authorized temporary-release material can enter Blanking.");
             }
             CompoundStockStatus stockStatus = approved.getStockStatus() == null
                     ? CompoundStockStatus.AVAILABLE : approved.getStockStatus();
@@ -78,12 +86,15 @@ public class BlankingService {
 
         ShiftService.ShiftContext shift = shiftService.current();
         boolean startImmediately = Boolean.TRUE.equals(request.startImmediately());
+        int plannedQuantity = request.plannedProductionQuantity() == null
+                ? 0 : request.plannedProductionQuantity();
         BigDecimal averageWeight = request.averageBlankWeightGrams();
         BigDecimal expected = averageWeight == null
-                ? BigDecimal.valueOf(request.plannedProductionQuantity())
+                ? null
                 : request.materialConsumedKg().multiply(BigDecimal.valueOf(1000))
                         .divide(averageWeight, 6, RoundingMode.HALF_UP);
-        int expectedWhole = expected.setScale(0, RoundingMode.DOWN).intValueExact();
+        Integer expectedWhole = expected == null
+                ? null : expected.setScale(0, RoundingMode.DOWN).intValueExact();
         if (approved != null) {
             approved.setAvailableQuantityKg(approved.getAvailableQuantityKg().subtract(request.materialConsumedKg()));
             approved.setReservedQuantityKg(zero(approved.getReservedQuantityKg()).add(request.materialConsumedKg()));
@@ -101,7 +112,7 @@ public class BlankingService {
                 .millOperator(trimToNull(request.millOperator()))
                 .preformerOperator(trimToNull(request.preformerOperator()))
                 .materialConsumedKg(request.materialConsumedKg())
-                .plannedProductionQuantity(request.plannedProductionQuantity())
+                .plannedProductionQuantity(plannedQuantity)
                 .averageBlankWeightGrams(averageWeight)
                 .expectedBlankQuantity(expected)
                 .expectedWholeBlankQuantity(expectedWhole)
@@ -128,8 +139,7 @@ public class BlankingService {
                 (approved == null ? "Temporary manual compound issue to " : "Compound issued to ")
                         + saved.getBatchNumber());
         auditService.record(actor, "CREATE_BLANKING_BATCH", "BlankingBatch", saved.getId(), null,
-                saved.getBatchNumber() + " / " + saved.getMixingBatchNumber()
-                        + " / planned " + saved.getPlannedProductionQuantity() + " blanks",
+                saved.getBatchNumber() + " / " + saved.getMixingBatchNumber(),
                 approved == null || approved.getMixingBatch() == null
                         ? null : approved.getMixingBatch().getId(), null);
         realtimeEventService.productionChanged("BLANKING", "BLANKING_BATCH_CREATED", saved.getId(),
@@ -172,19 +182,27 @@ public class BlankingService {
                     "Total production must equal actual good blanks plus rejected blank quantity.");
         }
         BigDecimal averageWeight = value.getAverageBlankWeightGrams();
-        if (averageWeight == null || averageWeight.signum() <= 0) {
-            averageWeight = value.getMaterialConsumedKg().multiply(BigDecimal.valueOf(1000))
-                    .divide(BigDecimal.valueOf(value.getPlannedProductionQuantity()), 3, RoundingMode.HALF_UP);
-            value.setAverageBlankWeightGrams(averageWeight);
-        }
-        BigDecimal usedWeightKg = BigDecimal.valueOf(goodQuantity).multiply(averageWeight)
-                .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
         BigDecimal rejectedWeightKg = request.rejectedMaterialWeightKg() == null
                 ? BigDecimal.ZERO : request.rejectedMaterialWeightKg();
-        BigDecimal calculatedRemaining = value.getMaterialConsumedKg()
-                .subtract(usedWeightKg)
-                .subtract(rejectedWeightKg)
-                .setScale(3, RoundingMode.HALF_UP);
+        boolean hasAverageWeight = averageWeight != null && averageWeight.signum() > 0;
+        BigDecimal usedWeightKg;
+        BigDecimal calculatedRemaining;
+        if (hasAverageWeight) {
+            usedWeightKg = BigDecimal.valueOf(goodQuantity).multiply(averageWeight)
+                    .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
+            calculatedRemaining = value.getMaterialConsumedKg()
+                    .subtract(usedWeightKg)
+                    .subtract(rejectedWeightKg)
+                    .setScale(3, RoundingMode.HALF_UP);
+        } else {
+            BigDecimal reportedRemaining = request.measuredRemainingCompoundWeightKg() == null
+                    ? BigDecimal.ZERO : request.measuredRemainingCompoundWeightKg().setScale(3, RoundingMode.HALF_UP);
+            usedWeightKg = value.getMaterialConsumedKg()
+                    .subtract(rejectedWeightKg)
+                    .subtract(reportedRemaining)
+                    .setScale(3, RoundingMode.HALF_UP);
+            calculatedRemaining = reportedRemaining;
+        }
         if (calculatedRemaining.signum() < 0) {
             throw new BusinessRuleException(
                     "Used compound and rejected material exceed the compound quantity issued.");
@@ -225,7 +243,8 @@ public class BlankingService {
         value.setRejectedMaterialWeightKg(rejectedWeightKg);
         value.setActualUsedCompoundWeightKg(usedWeightKg);
         value.setRemainingCompoundWeightKg(measuredRemaining);
-        value.setProductionVariance(goodQuantity - value.getExpectedWholeBlankQuantity());
+        value.setProductionVariance(value.getExpectedWholeBlankQuantity() == null
+                ? 0 : goodQuantity - value.getExpectedWholeBlankQuantity());
         value.setUnbalanced(unbalanced);
         value.setBalanceConfirmationReason(unbalanced ? request.balanceConfirmationReason().trim() : null);
         value.setBalanceConfirmedBy(unbalanced ? actor : null);
@@ -427,6 +446,9 @@ public class BlankingService {
         Press press = pressRepository.findById(request.destinationPressId())
                 .filter(Press::isActive)
                 .orElseThrow(() -> new NotFoundException("Destination press not found or inactive."));
+        BigDecimal averageBlankWeightGrams = request.averageBlankWeightGrams().setScale(3, RoundingMode.HALF_UP);
+        BigDecimal materialWeightKg = averageBlankWeightGrams.multiply(BigDecimal.valueOf(request.quantity()))
+                .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
 
         batch.setAvailableGoodBlankQuantity(batch.getAvailableGoodBlankQuantity() - request.quantity());
         blankingBatchRepository.save(batch);
@@ -439,8 +461,8 @@ public class BlankingService {
                 .quantity(request.quantity())
                 .remainingQuantity(request.quantity())
                 .returnedQuantity(0)
-                .averageBlankWeightGrams(batch.getAverageBlankWeightGrams())
-                .materialWeightKg(cartWeightKg(batch, request.quantity()))
+                .averageBlankWeightGrams(averageBlankWeightGrams)
+                .materialWeightKg(materialWeightKg)
                 .createdBy(actor)
                 .destinationPress(press)
                 .status(BlankingCartStatus.PREPARED)
@@ -480,7 +502,9 @@ public class BlankingService {
         }
 
         auditService.record(actor, "PREPARE_BLANKING_CART", "BlankingCart", saved.getId(), null,
-                saved.getCartNumber() + " / " + saved.getQuantity() + " blanks / " + press.getPressNumber(),
+                saved.getCartNumber() + " / " + saved.getQuantity() + " blanks / "
+                        + saved.getMaterialWeightKg() + " kg / " + saved.getAverageBlankWeightGrams()
+                        + " g per blank / " + press.getPressNumber(),
                 null, null);
         realtimeEventService.productionChanged("BLANKING", "CART_PREPARED", saved.getId(),
                 saved.getCartNumber() + " prepared for " + press.getPressNumber());
@@ -634,14 +658,6 @@ public class BlankingService {
 
     private BigDecimal zero(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
-    }
-
-    private BigDecimal cartWeightKg(BlankingBatch batch, int quantity) {
-        if (batch.getAverageBlankWeightGrams() == null) {
-            return null;
-        }
-        return batch.getAverageBlankWeightGrams().multiply(BigDecimal.valueOf(quantity))
-                .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
     }
 
     private boolean isSupervisor(UserAccount actor) {

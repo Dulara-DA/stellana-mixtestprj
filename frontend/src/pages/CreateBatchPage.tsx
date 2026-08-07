@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { ArrowLeft, Save, ShieldAlert } from 'lucide-react'
+import { ArrowLeft, CalendarClock, Save, ShieldAlert } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { PageHeader } from '../components/PageHeader'
@@ -12,6 +12,8 @@ export function CreateBatchPage() {
   const [recipes, setRecipes] = useState<RecipeRevision[]>([])
   const [officers, setOfficers] = useState<User[]>([])
   const [sourceBatches, setSourceBatches] = useState<Batch[]>([])
+  const [allBatches, setAllBatches] = useState<Batch[]>([])
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
   const [form, setForm] = useState({
     batchNumber: '',
     recipeRevisionId: '',
@@ -19,6 +21,10 @@ export function CreateBatchPage() {
     machine: 'Mixer A',
     assignedOfficerId: '',
     reprocessingSourceBatchId: '',
+    plannedStartTime: '',
+    targetCompletionTime: '',
+    productionPriority: 'NORMAL',
+    scheduleNotes: '',
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -41,6 +47,7 @@ export function CreateBatchPage() {
       .then(([recipeData, officerData, batchData]) => {
         setRecipes(recipeData)
         setOfficers(officerData)
+        setAllBatches(batchData)
         setSourceBatches(batchData.filter((batch) => ['LAB_FAILED', 'REPROCESSING'].includes(batch.status)))
         if (user?.role === 'MIXING_OFFICER' && user.id) {
           setForm((current) => ({ ...current, assignedOfficerId: String(user.id) }))
@@ -54,6 +61,29 @@ export function CreateBatchPage() {
     setError('')
     setLoading(true)
     try {
+      if (scheduleEnabled && new Date(form.targetCompletionTime) <= new Date(form.plannedStartTime)) {
+        setError('Target completion time must be after the planned start time.')
+        setLoading(false)
+        return
+      }
+      const officerId = isOfficer ? user?.id : Number(form.assignedOfficerId)
+      const conflicts = scheduleEnabled
+        ? allBatches.filter((batch) => {
+            if (!batch.plannedStartTime || !batch.targetCompletionTime || batch.stage2CompletedAt || batch.status === 'CANCELLED') return false
+            const overlaps = new Date(form.plannedStartTime) < new Date(batch.targetCompletionTime)
+              && new Date(form.targetCompletionTime) > new Date(batch.plannedStartTime)
+            return overlaps && (batch.assignedOfficer.id === officerId || batch.machine.toLowerCase() === form.machine.trim().toLowerCase())
+          })
+        : []
+      let confirmScheduleConflicts = false
+      let scheduleConflictReason = ''
+      if (conflicts.length > 0) {
+        const accepted = window.confirm(`Schedule conflict with ${conflicts.map((batch) => batch.batchNumber).join(', ')}. Continue with an authorized reason?`)
+        if (!accepted) { setLoading(false); return }
+        scheduleConflictReason = window.prompt('Reason for accepting the schedule conflict:')?.trim() ?? ''
+        if (!scheduleConflictReason) { setError('A reason is required to accept a schedule conflict.'); setLoading(false); return }
+        confirmScheduleConflicts = true
+      }
       const batch = await api<{ id: number }>('/api/batches', {
         method: 'POST',
         body: JSON.stringify({
@@ -62,6 +92,12 @@ export function CreateBatchPage() {
           plannedQuantityKg: Number(form.plannedQuantityKg),
           assignedOfficerId: isOfficer ? null : Number(form.assignedOfficerId),
           reprocessingSourceBatchId: form.reprocessingSourceBatchId ? Number(form.reprocessingSourceBatchId) : null,
+          plannedStartTime: scheduleEnabled ? form.plannedStartTime : null,
+          targetCompletionTime: scheduleEnabled ? form.targetCompletionTime : null,
+          productionPriority: form.productionPriority,
+          scheduleNotes: scheduleEnabled ? form.scheduleNotes : null,
+          confirmScheduleConflicts,
+          scheduleConflictReason,
         }),
       })
       navigate(`/batches/${batch.id}`)
@@ -176,6 +212,28 @@ export function CreateBatchPage() {
                   ))}
                 </select>
               </label>
+            )}
+            {!isOfficer && (
+              <div className="sm:col-span-2 rounded-2xl border border-violet-200 bg-violet-50 p-5">
+                <label className="flex cursor-pointer items-center gap-3 font-black text-violet-950">
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-violet-300 text-violet-600"
+                    checked={scheduleEnabled}
+                    onChange={(event) => setScheduleEnabled(event.target.checked)}
+                  />
+                  <CalendarClock size={20} /> Plan this batch for a production time window
+                </label>
+                {scheduleEnabled && (
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                    <label><span className="label">Planned start</span><input className="field" required type="datetime-local" value={form.plannedStartTime} onChange={(event) => setForm({ ...form, plannedStartTime: event.target.value })} /></label>
+                    <label><span className="label">Target completion</span><input className="field" required type="datetime-local" value={form.targetCompletionTime} onChange={(event) => setForm({ ...form, targetCompletionTime: event.target.value })} /></label>
+                    <label><span className="label">Priority</span><select className="field" value={form.productionPriority} onChange={(event) => setForm({ ...form, productionPriority: event.target.value })}><option value="NORMAL">Normal</option><option value="HIGH">High</option><option value="URGENT">Urgent</option></select></label>
+                    <label><span className="label">Planning note (optional)</span><input className="field" value={form.scheduleNotes} onChange={(event) => setForm({ ...form, scheduleNotes: event.target.value })} placeholder="Shift target or instruction" /></label>
+                    <p className="sm:col-span-2 text-xs leading-5 text-violet-800">The completion time is a monitored target. It will warn managers if late, but it will not stop the mixer automatically.</p>
+                  </div>
+                )}
+              </div>
             )}
           </div>
           <div className="mt-8 flex justify-end gap-3 border-t border-slate-200 pt-6">

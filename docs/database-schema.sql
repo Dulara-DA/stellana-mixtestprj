@@ -63,12 +63,22 @@ CREATE TABLE production_batches (
     actual_output_quantity_kg NUMERIC(12,3),
     machine VARCHAR(255) NOT NULL,
     assigned_officer_id BIGINT NOT NULL REFERENCES user_accounts(id),
+    planned_start_time TIMESTAMP,
+    target_completion_time TIMESTAMP,
+    production_priority VARCHAR(30),
+    schedule_notes VARCHAR(1000),
+    scheduled_by_id BIGINT REFERENCES user_accounts(id),
+    scheduled_at TIMESTAMP,
     status VARCHAR(60) NOT NULL,
     current_stage INTEGER NOT NULL DEFAULT 0,
     issue_or_stoppage_reason VARCHAR(1000),
     reprocessing_source_batch_id BIGINT REFERENCES production_batches(id),
     laboratory_status VARCHAR(30) NOT NULL,
     release_status VARCHAR(40) NOT NULL,
+    temporary_lab_bypass BOOLEAN DEFAULT FALSE,
+    temporary_lab_bypass_reason VARCHAR(1000),
+    temporary_lab_bypass_approved_by_id BIGINT REFERENCES user_accounts(id),
+    temporary_lab_bypass_approved_at TIMESTAMP,
     traceability_code VARCHAR(255) NOT NULL UNIQUE,
     stage1_started_at TIMESTAMP,
     stage1_completed_at TIMESTAMP,
@@ -496,6 +506,7 @@ CREATE TABLE shortage_request_messages (
 
 CREATE INDEX idx_batches_status ON production_batches(status);
 CREATE INDEX idx_batches_officer ON production_batches(assigned_officer_id);
+CREATE INDEX idx_batches_planned_start ON production_batches(planned_start_time);
 CREATE INDEX idx_history_batch_time ON batch_status_history(batch_id, changed_at);
 CREATE INDEX idx_material_requests_batch ON material_requests(batch_id);
 CREATE INDEX idx_lab_samples_batch ON lab_samples(batch_id);

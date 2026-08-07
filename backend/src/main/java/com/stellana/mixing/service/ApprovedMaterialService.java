@@ -2,6 +2,7 @@ package com.stellana.mixing.service;
 
 import com.stellana.mixing.api.ApiModels.ApprovedMaterialBatchView;
 import com.stellana.mixing.api.ApiModels.CompoundStockStatusRequest;
+import com.stellana.mixing.api.ApiModels.UpdateCompoundReceiptRequest;
 import com.stellana.mixing.domain.*;
 import com.stellana.mixing.exception.BusinessRuleException;
 import com.stellana.mixing.exception.NotFoundException;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 import static com.stellana.mixing.api.ApiMapper.approvedMaterialBatch;
@@ -36,15 +38,27 @@ public class ApprovedMaterialService {
 
     @Transactional
     public ApprovedMaterialBatch createFromReleasedMixingBatch(ProductionBatch batch, UserAccount actor) {
-        if (batch.getLaboratoryStatus() != LabDecision.PASS
+        boolean temporaryLabBypass = Boolean.TRUE.equals(batch.getTemporaryLabBypass());
+        boolean laboratoryPassed = batch.getLaboratoryStatus() == LabDecision.PASS;
+        if ((!laboratoryPassed && !temporaryLabBypass)
                 || batch.getReleaseStatus() != ReleaseStatus.APPROVED_FOR_BLANKING) {
-            throw new BusinessRuleException("Only a passed and released Mixing batch can enter Blanking.");
+            throw new BusinessRuleException(
+                    "Only a laboratory-passed or explicitly authorized temporary-release Mixing batch can enter Blanking.");
+        }
+        if (temporaryLabBypass && (batch.getLaboratoryStatus() != LabDecision.PENDING
+                || batch.getTemporaryLabBypassApprovedBy() == null
+                || batch.getTemporaryLabBypassApprovedAt() == null
+                || batch.getTemporaryLabBypassReason() == null
+                || batch.getTemporaryLabBypassReason().isBlank())) {
+            throw new BusinessRuleException("The temporary laboratory bypass authorization is incomplete.");
         }
         return approvedMaterialBatchRepository.findByMixingBatchNumberIgnoreCase(batch.getBatchNumber())
                 .orElseGet(() -> {
-                    LabSample labApproval = labSampleRepository.findFirstByBatchIdOrderBySentToLabAtDesc(batch.getId())
-                            .filter(sample -> sample.getDecision() == LabDecision.PASS)
-                            .orElse(null);
+                    LabSample labApproval = laboratoryPassed
+                            ? labSampleRepository.findFirstByBatchIdOrderBySentToLabAtDesc(batch.getId())
+                                    .filter(sample -> sample.getDecision() == LabDecision.PASS)
+                                    .orElse(null)
+                            : null;
                     BigDecimal quantity = batch.getActualOutputQuantityKg() == null
                             ? batch.getPlannedQuantityKg()
                             : batch.getActualOutputQuantityKg();
@@ -55,7 +69,7 @@ public class ApprovedMaterialService {
                                     .mixingBatchNumber(batch.getBatchNumber())
                                     .materialCode(batch.getRecipeRevision().getRecipe().getRecipeCode())
                                     .compoundName(batch.getRecipeRevision().getRecipe().getCompoundName())
-                                    .labStatus(LabDecision.PASS)
+                                    .labStatus(laboratoryPassed ? LabDecision.PASS : LabDecision.PENDING)
                                     .approvedQuantityKg(quantity)
                                     .availableQuantityKg(quantity)
                                     .plannedQuantityKg(batch.getPlannedQuantityKg())
@@ -63,13 +77,19 @@ public class ApprovedMaterialService {
                                     .reservedQuantityKg(BigDecimal.ZERO)
                                     .consumedQuantityKg(BigDecimal.ZERO)
                                     .returnedQuantityKg(BigDecimal.ZERO)
-                                    .approvedAt(labApproval != null && labApproval.getTestDateTime() != null
-                                            ? labApproval.getTestDateTime()
-                                            : shiftService.now())
+                                    .approvedAt(temporaryLabBypass
+                                            ? batch.getTemporaryLabBypassApprovedAt()
+                                            : labApproval != null && labApproval.getTestDateTime() != null
+                                                    ? labApproval.getTestDateTime() : shiftService.now())
                                     .receivedAt(shiftService.now())
                                     .receivingOperator(actor)
                                     .stockStatus(CompoundStockStatus.AVAILABLE)
-                                    .notes("Automatically created from the passed Mixing/Lab release.")
+                                    .notes(temporaryLabBypass
+                                            ? "TEMPORARY LAB BYPASS — authorized by "
+                                                    + batch.getTemporaryLabBypassApprovedBy().getFullName()
+                                                    + ". Reason: " + batch.getTemporaryLabBypassReason()
+                                                    + ". This is not a laboratory PASS."
+                                            : "Automatically created from the passed Mixing/Lab release.")
                                     .active(true)
                                     .build());
                     inventoryLedgerService.record(
@@ -84,13 +104,21 @@ public class ApprovedMaterialService {
                             "kg",
                             quantity,
                             actor,
-                            "Lab PASS and Manager release for Blanking");
-                    auditService.record(actor, "APPROVE_MATERIAL_FOR_BLANKING", "ApprovedMaterialBatch",
+                            temporaryLabBypass
+                                    ? "Temporary authorized release without lab sampling for Blanking"
+                                    : "Lab PASS and Manager release for Blanking");
+                    auditService.record(actor, temporaryLabBypass
+                                    ? "TEMPORARY_MATERIAL_RELEASE_FOR_BLANKING"
+                                    : "APPROVE_MATERIAL_FOR_BLANKING", "ApprovedMaterialBatch",
                             saved.getId(), null,
                             saved.getMixingBatchNumber() + " / " + quantity + " kg",
                             batch.getId(), batch.getRecipeRevision().getRecipe().getId());
-                    realtimeEventService.productionChanged("BLANKING", "MATERIAL_BATCH_APPROVED", saved.getId(),
-                            saved.getMixingBatchNumber() + " is available to Blanking");
+                    realtimeEventService.productionChanged("BLANKING", temporaryLabBypass
+                                    ? "TEMPORARY_MATERIAL_BATCH_RELEASED"
+                                    : "MATERIAL_BATCH_APPROVED", saved.getId(),
+                            saved.getMixingBatchNumber() + (temporaryLabBypass
+                                    ? " is temporarily available to Blanking without lab sampling"
+                                    : " is available to Blanking"));
                     return saved;
                 });
     }
@@ -149,6 +177,85 @@ public class ApprovedMaterialService {
         realtimeEventService.productionChanged("BLANKING", "COMPOUND_STOCK_STATUS_CHANGED",
                 saved.getId(), saved.getMixingBatchNumber() + " is " + saved.getStockStatus());
         return approvedMaterialBatch(saved);
+    }
+
+    @Transactional
+    public ApprovedMaterialBatchView updateReceipt(Long id, UpdateCompoundReceiptRequest request) {
+        UserAccount actor = currentUser();
+        ApprovedMaterialBatch value = approvedMaterialBatchRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new NotFoundException("Compound stock record not found."));
+        BigDecimal previousReceived = amount(value.getReceivedQuantityKg() == null
+                ? value.getApprovedQuantityKg() : value.getReceivedQuantityKg());
+        BigDecimal previousAvailable = amount(value.getAvailableQuantityKg());
+        BigDecimal received = request.receivedQuantityKg().setScale(3, RoundingMode.HALF_UP);
+        BigDecimal difference = received.subtract(previousReceived);
+        BigDecimal available = previousAvailable.add(difference);
+        BigDecimal allocated = amount(value.getReservedQuantityKg()).add(amount(value.getConsumedQuantityKg()));
+        BigDecimal minimumReceived = previousReceived.subtract(previousAvailable)
+                .max(allocated)
+                .max(BigDecimal.ZERO);
+        if (available.signum() < 0 || received.compareTo(minimumReceived) < 0) {
+            throw new BusinessRuleException("Received quantity cannot be less than "
+                    + minimumReceived.setScale(3, RoundingMode.HALF_UP)
+                    + " kg because that quantity is already reserved or consumed.");
+        }
+
+        value.setReceivedQuantityKg(received);
+        value.setAvailableQuantityKg(available);
+        value.setReceivedAt(shiftService.now());
+        value.setReceivingOperator(actor);
+        value.setStockStatus(statusAfterReceipt(value, received, available));
+        value.setActive(value.getStockStatus() != CompoundStockStatus.REJECTED);
+        String reason = request.reason().trim();
+        value.setNotes(append(value.getNotes(), "Manual receipt update: "
+                + previousReceived + " kg → " + received + " kg. Reason: " + reason));
+        ApprovedMaterialBatch saved = approvedMaterialBatchRepository.save(value);
+
+        inventoryLedgerService.record(
+                InventoryTransactionType.INVENTORY_CORRECTION,
+                ProductionSection.BLANKING,
+                ProductionSection.BLANKING,
+                "ApprovedMaterialBatch",
+                saved.getId(),
+                "ApprovedMaterialBatch",
+                saved.getId(),
+                difference,
+                "kg",
+                difference,
+                actor,
+                "Manual compound receipt correction: " + previousReceived + " kg → "
+                        + received + " kg / " + reason);
+        auditService.record(actor, "UPDATE_COMPOUND_RECEIPT", "ApprovedMaterialBatch",
+                saved.getId(),
+                "received=" + previousReceived + ", available=" + previousAvailable,
+                "received=" + received + ", available=" + available + " / " + reason,
+                saved.getMixingBatch() == null ? null : saved.getMixingBatch().getId(), null);
+        realtimeEventService.productionChanged("BLANKING", "COMPOUND_RECEIPT_UPDATED",
+                saved.getId(), saved.getMixingBatchNumber() + " receipt updated to " + received + " kg");
+        return approvedMaterialBatch(saved);
+    }
+
+    private CompoundStockStatus statusAfterReceipt(
+            ApprovedMaterialBatch value,
+            BigDecimal received,
+            BigDecimal available
+    ) {
+        if (value.getStockStatus() == CompoundStockStatus.ON_HOLD
+                || value.getStockStatus() == CompoundStockStatus.REJECTED) {
+            return value.getStockStatus();
+        }
+        BigDecimal allocated = amount(value.getReservedQuantityKg()).add(amount(value.getConsumedQuantityKg()));
+        if (received.signum() == 0 && allocated.signum() == 0) {
+            return CompoundStockStatus.AWAITING_RECEIPT;
+        }
+        if (available.signum() == 0) {
+            return CompoundStockStatus.DEPLETED;
+        }
+        return allocated.signum() > 0 ? CompoundStockStatus.PARTIALLY_USED : CompoundStockStatus.AVAILABLE;
+    }
+
+    private BigDecimal amount(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO.setScale(3) : value.setScale(3, RoundingMode.HALF_UP);
     }
 
     private UserAccount currentUser() {

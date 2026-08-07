@@ -1,7 +1,10 @@
 package com.stellana.mixing.service;
 
+import com.stellana.mixing.api.ApiModels.BlankingBatchView;
+import com.stellana.mixing.api.ApiModels.MixingReportRow;
 import com.stellana.mixing.api.ApiModels.MouldingProductionRecordView;
 import com.stellana.mixing.api.ApiModels.OperatorProductivityView;
+import com.stellana.mixing.api.ApiModels.ProductionReportRecords;
 import com.stellana.mixing.api.ApiModels.ProductionManagerSummary;
 import com.stellana.mixing.api.ApiModels.ProductionGenealogyView;
 import com.stellana.mixing.domain.*;
@@ -17,6 +20,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 
@@ -33,6 +37,7 @@ public class ProductionManagerService {
     private final CartReceiptRepository cartReceiptRepository;
     private final BlankReturnRepository blankReturnRepository;
     private final InventoryTransactionRepository inventoryTransactionRepository;
+    private final ProductionBatchRepository productionBatchRepository;
 
     @Value("${app.production.cart-transfer-delay-minutes:30}")
     private long cartTransferDelayMinutes;
@@ -246,6 +251,103 @@ public class ProductionManagerService {
     }
 
     @Transactional(readOnly = true)
+    public ProductionReportRecords records(
+            LocalDate fromDate,
+            LocalDate toDate,
+            ProductionShift shift,
+            Long pressId,
+            Long operatorId,
+            String blankingBatchNumber,
+            String mixingBatchNumber,
+            String cartNumber,
+            String materialCode
+    ) {
+        LocalDate today = shiftService.current().productionDate();
+        LocalDate safeFrom = fromDate == null ? today : fromDate;
+        LocalDate safeTo = toDate == null ? safeFrom : toDate;
+        if (safeTo.isBefore(safeFrom)) {
+            LocalDate swap = safeFrom;
+            safeFrom = safeTo;
+            safeTo = swap;
+        }
+        final LocalDate reportFrom = safeFrom;
+        final LocalDate reportTo = safeTo;
+
+        List<MixingReportRow> mixingRows = productionBatchRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(batch -> {
+                    LocalDateTime activityTime = batch.getStage1StartedAt() != null
+                            ? batch.getStage1StartedAt()
+                            : batch.getCreatedAt();
+                    ShiftService.ShiftContext context = shiftService.calculate(activityTime);
+                    return new MixingRowContext(batch, context, activityTime);
+                })
+                .filter(value -> !value.context().productionDate().isBefore(reportFrom)
+                        && !value.context().productionDate().isAfter(reportTo))
+                .filter(value -> shift == null || value.context().shift() == shift)
+                .filter(value -> operatorId == null
+                        || value.batch().getAssignedOfficer().getId().equals(operatorId))
+                .filter(value -> matches(value.batch().getBatchNumber(), mixingBatchNumber))
+                .filter(value -> matches(
+                        value.batch().getRecipeRevision().getRecipe().getRecipeCode(), materialCode))
+                .sorted(Comparator.comparing(MixingRowContext::activityTime).reversed())
+                .map(value -> {
+                    ProductionBatch batch = value.batch();
+                    UserAccount officer = batch.getAssignedOfficer();
+                    return new MixingReportRow(
+                            batch.getId(),
+                            batch.getBatchNumber(),
+                            batch.getRecipeRevision().getRecipe().getRecipeCode(),
+                            batch.getRecipeRevision().getRevisionNumber(),
+                            batch.getPlannedQuantityKg(),
+                            batch.getActualOutputQuantityKg(),
+                            batch.getMachine(),
+                            com.stellana.mixing.api.ApiMapper.user(officer),
+                            StringUtils.hasText(officer.getEmployeeId())
+                                    ? officer.getEmployeeId() : "USER-" + officer.getId(),
+                            value.context().productionDate(),
+                            value.context().shift(),
+                            batch.getStage1StartedAt(),
+                            batch.getStage1CompletedAt(),
+                            batch.getStage2StartedAt(),
+                            batch.getStage2CompletedAt(),
+                            batch.getLaboratoryStatus(),
+                            batch.getReleaseStatus(),
+                            batch.getStatus());
+                })
+                .toList();
+
+        List<BlankingCart> allCarts = blankingCartRepository.findAllByOrderByCreatedAtDesc();
+        List<BlankingBatchView> blankingRows = blankingBatchRepository
+                .findAllByProductionDateBetweenOrderByCreatedAtDesc(safeFrom, safeTo).stream()
+                .filter(value -> shift == null || value.getShift() == shift)
+                .filter(value -> operatorId == null || value.getOperator().getId().equals(operatorId))
+                .filter(value -> matches(value.getBatchNumber(), blankingBatchNumber))
+                .filter(value -> matches(value.getMixingBatchNumber(), mixingBatchNumber))
+                .filter(value -> matches(value.getMaterialCode(), materialCode))
+                .filter(value -> (pressId == null && !StringUtils.hasText(cartNumber))
+                        || allCarts.stream().anyMatch(cart ->
+                        cart.getBlankingBatch().getId().equals(value.getId())
+                                && (pressId == null || cart.getDestinationPress().getId().equals(pressId))
+                                && matches(cart.getCartNumber(), cartNumber)))
+                .map(com.stellana.mixing.api.ApiMapper::blankingBatch)
+                .toList();
+
+        List<MouldingProductionRecordView> mouldingRows = recordRepository
+                .findAllByProductionDateBetweenOrderByCreatedAtDesc(safeFrom, safeTo).stream()
+                .filter(value -> shift == null || value.getShift() == shift)
+                .filter(value -> pressId == null || value.getPress().getId().equals(pressId))
+                .filter(value -> operatorId == null || value.getOperator().getId().equals(operatorId))
+                .filter(value -> matches(value.getBlankingBatch().getBatchNumber(), blankingBatchNumber))
+                .filter(value -> matches(value.getBlankingBatch().getMixingBatchNumber(), mixingBatchNumber))
+                .filter(value -> matches(value.getCart().getCartNumber(), cartNumber))
+                .filter(value -> matches(value.getBlankingBatch().getMaterialCode(), materialCode))
+                .map(com.stellana.mixing.api.ApiMapper::mouldingRecord)
+                .toList();
+
+        return new ProductionReportRecords(mixingRows, blankingRows, mouldingRows);
+    }
+
+    @Transactional(readOnly = true)
     public ProductionGenealogyView genealogy(String mixingBatchNumber) {
         ApprovedMaterialBatch stock = approvedMaterialBatchRepository
                 .findByMixingBatchNumberIgnoreCase(mixingBatchNumber)
@@ -322,4 +424,10 @@ public class ProductionManagerService {
         return !StringUtils.hasText(filter)
                 || (value != null && value.toLowerCase().contains(filter.trim().toLowerCase()));
     }
+
+    private record MixingRowContext(
+            ProductionBatch batch,
+            ShiftService.ShiftContext context,
+            LocalDateTime activityTime
+    ) {}
 }

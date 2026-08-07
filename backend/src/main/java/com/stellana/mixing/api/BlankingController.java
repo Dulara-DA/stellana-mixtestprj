@@ -42,6 +42,15 @@ public class BlankingController {
         return approvedMaterialService.changeStatus(id, request);
     }
 
+    @PatchMapping("/compound-stock/{id}/receipt")
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public ApprovedMaterialBatchView updateCompoundReceipt(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateCompoundReceiptRequest request
+    ) {
+        return approvedMaterialService.updateReceipt(id, request);
+    }
+
     @GetMapping("/batches")
     @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
     public List<BlankingBatchView> batches() {

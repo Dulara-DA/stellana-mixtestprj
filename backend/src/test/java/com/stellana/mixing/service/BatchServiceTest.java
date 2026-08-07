@@ -62,7 +62,7 @@ class BatchServiceTest {
         when(batchRepository.findById(10L)).thenReturn(Optional.of(batch));
 
         assertThatThrownBy(() -> batchService.transition(
-                10L, new BatchTransitionRequest(BatchStatus.LAB_PASSED, null)))
+                10L, new BatchTransitionRequest(BatchStatus.LAB_PASSED, null, null)))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("Invalid batch transition");
     }
@@ -73,7 +73,8 @@ class BatchServiceTest {
         when(batchRepository.existsByBatchNumberIgnoreCase("TEST-OVER")).thenReturn(false);
 
         CreateBatchRequest request = new CreateBatchRequest(
-                "TEST-OVER", 1L, new BigDecimal("240.001"), "Mixer A", 2L, null);
+                "TEST-OVER", 1L, new BigDecimal("240.001"), "Mixer A", 2L, null,
+                null, null, null, null, false, null);
 
         assertThatThrownBy(() -> batchService.create(request))
                 .isInstanceOf(BusinessRuleException.class)
@@ -81,4 +82,3 @@ class BatchServiceTest {
                 .hasMessageContaining("fill factor is not used");
     }
 }
-
