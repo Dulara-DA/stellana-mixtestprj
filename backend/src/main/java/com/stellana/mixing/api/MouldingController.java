@@ -33,6 +33,15 @@ public class MouldingController {
         return mouldingService.changePressStatus(id, request);
     }
 
+    @PatchMapping("/presses/{id}/current-item")
+    @PreAuthorize("hasAnyRole('MOULDING_OPERATOR','MOULDING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public PressView updateCurrentItem(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdatePressItemRequest request
+    ) {
+        return mouldingService.updateCurrentItem(id, request);
+    }
+
     @GetMapping("/upcoming-carts")
     @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MOULDING_OPERATOR',"
             + "'MOULDING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")

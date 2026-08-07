@@ -36,6 +36,12 @@ public class BatchController {
         return batchService.create(request);
     }
 
+    @PutMapping("/api/batches/{id}/schedule")
+    @PreAuthorize("hasAnyRole('MANAGER','SYSTEM_ADMIN')")
+    public BatchView schedule(@PathVariable Long id, @Valid @RequestBody ScheduleBatchRequest request) {
+        return batchService.schedule(id, request);
+    }
+
     @PostMapping("/api/batches/{id}/transition")
     public BatchView transition(@PathVariable Long id, @Valid @RequestBody BatchTransitionRequest request) {
         return batchService.transition(id, request);

@@ -11,21 +11,20 @@ import java.util.Optional;
 
 public interface ProductionBatchRepository extends JpaRepository<ProductionBatch, Long> {
     @Override
-    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer", "reprocessingSourceBatch"})
+    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer", "reprocessingSourceBatch", "scheduledBy"})
     Optional<ProductionBatch> findById(Long id);
 
-    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer"})
+    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer", "scheduledBy"})
     Optional<ProductionBatch> findByTraceabilityCode(String traceabilityCode);
 
-    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer"})
+    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer", "scheduledBy"})
     List<ProductionBatch> findAllByOrderByCreatedAtDesc();
 
-    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer"})
+    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer", "scheduledBy"})
     List<ProductionBatch> findAllByStatusInOrderByUpdatedAtDesc(Collection<BatchStatus> statuses);
 
-    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer"})
+    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer", "scheduledBy"})
     List<ProductionBatch> findAllByAssignedOfficerIdOrderByCreatedAtDesc(Long officerId);
 
     boolean existsByBatchNumberIgnoreCase(String batchNumber);
 }
-

@@ -5,6 +5,7 @@ import com.stellana.mixing.api.ApiModels.DashboardSummary;
 import com.stellana.mixing.domain.BatchStatus;
 import com.stellana.mixing.domain.ProductionBatch;
 import com.stellana.mixing.domain.Role;
+import com.stellana.mixing.domain.ScheduleTimingStatus;
 import com.stellana.mixing.domain.UserAccount;
 import com.stellana.mixing.repository.IssueThreadRepository;
 import com.stellana.mixing.repository.ProductionBatchRepository;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.EnumSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
@@ -39,6 +41,17 @@ public class DashboardService {
                 .limit(25)
                 .map(com.stellana.mixing.api.ApiMapper::batch)
                 .toList();
+        List<BatchView> scheduledViews = all.stream()
+                .filter(value -> value.getPlannedStartTime() != null)
+                .filter(value -> value.getStage2CompletedAt() == null && value.getStatus() != BatchStatus.CANCELLED)
+                .sorted(Comparator.comparing(ProductionBatch::getPlannedStartTime))
+                .map(com.stellana.mixing.api.ApiMapper::batch)
+                .toList();
+        List<BatchView> scheduleBoard = scheduledViews.stream().limit(25).toList();
+        long scheduled = scheduledViews.stream().filter(value -> value.scheduleTimingStatus() == ScheduleTimingStatus.SCHEDULED).count();
+        long ready = scheduledViews.stream().filter(value -> value.scheduleTimingStatus() == ScheduleTimingStatus.READY_TO_START).count();
+        long dueSoon = scheduledViews.stream().filter(value -> value.scheduleTimingStatus() == ScheduleTimingStatus.DUE_SOON).count();
+        long overdue = scheduledViews.stream().filter(value -> value.scheduleTimingStatus() == ScheduleTimingStatus.OVERDUE).count();
         return new DashboardSummary(
                 active.size(),
                 count(all, BatchStatus.WAITING_FOR_MATERIALS, BatchStatus.MATERIALS_REQUESTED),
@@ -49,7 +62,12 @@ public class DashboardService {
                 current.getRole() == Role.MIXING_OFFICER
                         ? issueRepository.countByCreatedByIdAndUnreadByOfficerTrue(current.getId())
                         : issueRepository.countByUnreadByManagerTrue(),
+                scheduled,
+                ready,
+                dueSoon,
+                overdue,
                 active,
+                scheduleBoard,
                 batchBoard,
                 auditService.recent(12)
         );

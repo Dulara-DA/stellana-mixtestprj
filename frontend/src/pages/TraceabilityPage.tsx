@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Activity, CalendarDays, CheckCircle2, FlaskConical, PackageSearch, ShieldCheck } from 'lucide-react'
+import { CalendarDays, CheckCircle2, FlaskConical, PackageSearch, ShieldCheck } from 'lucide-react'
 import { useParams } from 'react-router-dom'
+import { BrandLogo } from '../components/BrandLogo'
 import { StatusBadge } from '../components/StatusBadge'
 import { api, displayError, formatDateTime, humanize } from '../lib/api'
 
@@ -37,9 +38,9 @@ export function TraceabilityPage() {
     <main className="min-h-screen bg-slate-100 px-8 py-10">
       <div className="mx-auto max-w-5xl">
         <header className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-xl bg-safety text-ink"><Activity size={24} /></div>
-            <div><p className="text-lg font-black tracking-tight text-ink">STELLANA</p><p className="text-xs font-bold uppercase tracking-[0.17em] text-slate-500">Batch traceability</p></div>
+          <div>
+            <BrandLogo className="h-auto w-48" eager />
+            <p className="mt-1 text-xs font-bold uppercase tracking-[0.17em] text-slate-500">Batch traceability</p>
           </div>
           <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"><ShieldCheck size={15} /> Safe production reference</div>
         </header>

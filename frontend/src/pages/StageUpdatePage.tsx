@@ -31,6 +31,10 @@ export function StageUpdatePage() {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
+  useEffect(() => {
+    const timer = window.setInterval(() => void loadBatches(), 30_000)
+    return () => window.clearInterval(timer)
+  }, [loadBatches])
 
   const selectedBatch = useMemo(() => batches.find((batch) => batch.id === Number(batchId)), [batches, batchId])
 
@@ -39,6 +43,17 @@ export function StageUpdatePage() {
     const preparingPlannedStageOne = stageNumber === 1 && selectedBatch.status === 'PLANNED'
     let overrideReason: string | null = null
     let managerOverride = false
+    let earlyStartReason: string | null = null
+    let earlyStartOverride = false
+    if (stageNumber === 1 && selectedBatch.plannedStartTime && now < new Date(selectedBatch.plannedStartTime).getTime()) {
+      if (!['MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '')) {
+        setError(`This batch is scheduled to start at ${formatDateTime(selectedBatch.plannedStartTime)}.`)
+        return
+      }
+      earlyStartReason = window.prompt(`This batch is scheduled for ${formatDateTime(selectedBatch.plannedStartTime)}. Enter the authorized early-start reason:`)
+      if (!earlyStartReason?.trim()) return
+      earlyStartOverride = true
+    }
     if (stageNumber === 2 && !stages.some((stage) => stage.stageNumber === 1 && ['COMPLETED', 'OVERRIDDEN'].includes(stage.completionStatus))) {
       if (!['MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '')) {
         setError('Stage 1 must be completed before Stage 2.')
@@ -64,7 +79,15 @@ export function StageUpdatePage() {
       }
       await api('/api/stages/start', {
         method: 'POST',
-        body: JSON.stringify({ batchId: selectedBatch.id, stageNumber, machine: selectedBatch.machine, managerOverride, overrideReason }),
+        body: JSON.stringify({
+          batchId: selectedBatch.id,
+          stageNumber,
+          machine: selectedBatch.machine,
+          managerOverride,
+          overrideReason,
+          earlyStartOverride,
+          earlyStartReason,
+        }),
       })
       await Promise.all([loadStages(), loadBatches()])
     } catch (reason) { setError(displayError(reason)) }
@@ -125,14 +148,32 @@ export function StageUpdatePage() {
             <div className="card p-5"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">Current status</p><div className="mt-2"><StatusBadge status={selectedBatch.status} /></div></div>
           </div>
 
+          {selectedBatch.plannedStartTime && (
+            <section className={`mb-6 rounded-2xl border p-5 ${selectedBatch.scheduleTimingStatus === 'OVERDUE' ? 'border-red-200 bg-red-50' : 'border-violet-200 bg-violet-50'}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Assigned production window</p>
+                  <p className="mt-2 font-black text-ink">{formatDateTime(selectedBatch.plannedStartTime)} → {formatDateTime(selectedBatch.targetCompletionTime)}</p>
+                  <p className="mt-1 text-sm text-slate-600">Priority: {selectedBatch.productionPriority.replaceAll('_', ' ')}{selectedBatch.scheduleNotes ? ` · ${selectedBatch.scheduleNotes}` : ''}</p>
+                </div>
+                <StatusBadge status={selectedBatch.scheduleTimingStatus} />
+              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-600">The target is monitored by management. An overdue batch remains operable and must still be completed using the normal OUT control.</p>
+            </section>
+          )}
+
           <div className="grid gap-6 xl:grid-cols-2">
             {[1, 2].map((number) => {
               const stage = stages.find((item) => item.stageNumber === number)
-              const canStart = !stage && (
+              const canStartByStatus = !stage && (
                 (number === 1 && ['PLANNED', 'MATERIALS_ISSUED', 'READY_FOR_STAGE_1'].includes(selectedBatch.status))
                 || (number === 2 && ['STAGE_1_COMPLETED', 'READY_FOR_STAGE_2'].includes(selectedBatch.status))
                 || (number === 2 && ['MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? ''))
               )
+              const beforePlannedStart = number === 1 && Boolean(selectedBatch.plannedStartTime)
+                && now < new Date(selectedBatch.plannedStartTime!).getTime()
+              const canOverrideEarlyStart = ['MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '')
+              const canStart = canStartByStatus && (!beforePlannedStart || canOverrideEarlyStart)
               return (
                 <section key={number} className={`rounded-2xl border-2 bg-white p-6 shadow-sm ${stage?.completionStatus === 'IN_PROGRESS' ? 'border-process' : 'border-slate-200'}`}>
                   <div className="flex items-start justify-between">
@@ -144,10 +185,14 @@ export function StageUpdatePage() {
                     <button className="btn-primary mt-8 w-full py-4 text-base" onClick={() => start(number)} disabled={!canStart}>
                       <CirclePlay size={21} /> {
                         canStart
-                          ? number === 1 && selectedBatch.status === 'PLANNED'
+                          ? beforePlannedStart
+                            ? 'Authorize early start & record IN'
+                            : number === 1 && selectedBatch.status === 'PLANNED'
                             ? 'Confirm ready & record IN'
                             : `Record IN & start Stage ${number}`
-                          : `Stage ${number} not ready`
+                          : beforePlannedStart
+                            ? `Scheduled ${formatDateTime(selectedBatch.plannedStartTime)}`
+                            : `Stage ${number} not ready`
                       }
                     </button>
                   )}

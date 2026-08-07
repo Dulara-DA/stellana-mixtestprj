@@ -74,6 +74,7 @@ export function BatchesPage() {
                 <th>Recipe revision</th>
                 <th>Officer / Machine</th>
                 <th>Quantity</th>
+                <th>Production schedule</th>
                 <th>Created</th>
                 <th>Status</th>
                 <th aria-label="Open" />
@@ -98,8 +99,19 @@ export function BatchesPage() {
                     <p className="font-bold">{batch.plannedQuantityKg} kg</p>
                     <p className="mt-1 text-xs text-slate-500">Actual: {batch.actualOutputQuantityKg ?? '—'}</p>
                   </td>
+                  <td>
+                    {batch.plannedStartTime ? (
+                      <>
+                        <p className="whitespace-nowrap text-sm font-bold">{formatDateTime(batch.plannedStartTime)}</p>
+                        <div className="mt-1"><StatusBadge status={batch.scheduleTimingStatus} /></div>
+                      </>
+                    ) : <span className="text-sm text-slate-400">Not scheduled</span>}
+                  </td>
                   <td className="whitespace-nowrap">{formatDateTime(batch.createdAt)}</td>
-                  <td><StatusBadge status={batch.status} /></td>
+                  <td>
+                    <StatusBadge status={batch.status} />
+                    {batch.temporaryLabBypass && <div className="mt-2"><StatusBadge status="TEMPORARY_LAB_BYPASS" /></div>}
+                  </td>
                   <td>
                     <Link to={`/batches/${batch.id}`} className="grid h-10 w-10 place-items-center rounded-xl text-process hover:bg-blue-50" aria-label={`Open ${batch.batchNumber}`}>
                       <ArrowRight size={18} />

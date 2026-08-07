@@ -50,6 +50,7 @@ public class MixingStageService {
         boolean override = Boolean.TRUE.equals(request.managerOverride());
         LocalDateTime inTime = LocalDateTime.now();
         if (request.stageNumber() == 1) {
+            enforcePlannedStart(batch, actor, request, inTime);
             if (batch.getStatus() == BatchStatus.MATERIALS_ISSUED) {
                 batch = batchService.transitionInternal(batch, BatchStatus.READY_FOR_STAGE_1, actor, "Materials ready");
             }
@@ -104,6 +105,22 @@ public class MixingStageService {
         realtimeEventService.dashboardChanged("STAGE_STARTED", batch.getId(),
                 batch.getBatchNumber() + " Stage " + request.stageNumber() + " started");
         return stage(saved);
+    }
+
+    private void enforcePlannedStart(ProductionBatch batch, UserAccount actor,
+                                     StartStageRequest request, LocalDateTime inTime) {
+        if (batch.getPlannedStartTime() == null || !inTime.isBefore(batch.getPlannedStartTime())) {
+            return;
+        }
+        if (!Boolean.TRUE.equals(request.earlyStartOverride())
+                || !List.of(Role.MANAGER, Role.SYSTEM_ADMIN).contains(actor.getRole())
+                || !StringUtils.hasText(request.earlyStartReason())) {
+            throw new BusinessRuleException("This batch is scheduled to start at " + batch.getPlannedStartTime()
+                    + ". An early start requires a Manager or System Administrator override with a reason.");
+        }
+        auditService.record(actor, "OVERRIDE_EARLY_BATCH_START", "ProductionBatch", batch.getId(),
+                batch.getPlannedStartTime().toString(), inTime + " — " + request.earlyStartReason().trim(),
+                batch.getId(), batch.getRecipeRevision().getRecipe().getId());
     }
 
     @Transactional

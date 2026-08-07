@@ -3,6 +3,8 @@ package com.stellana.mixing.api;
 import com.stellana.mixing.domain.*;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 
@@ -37,11 +39,46 @@ public final class ApiMapper {
                 value.getRecipeRevision().getRecipe().getRecipeCode(), value.getRecipeRevision().getRecipe().getCompoundName(),
                 value.getRecipeRevision().getRevisionNumber(), value.getPlannedQuantityKg(),
                 value.getActualOutputQuantityKg(), value.getMachine(), user(value.getAssignedOfficer()),
-                value.getCreatedAt(), value.getStatus(), value.getCurrentStage(), value.getIssueOrStoppageReason(),
+                value.getCreatedAt(), value.getPlannedStartTime(), value.getTargetCompletionTime(),
+                value.getProductionPriority() == null ? ProductionPriority.NORMAL : value.getProductionPriority(),
+                value.getScheduleNotes(), user(value.getScheduledBy()), value.getScheduledAt(), scheduleTiming(value),
+                value.getStatus(), value.getCurrentStage(), value.getIssueOrStoppageReason(),
                 source == null ? null : source.getId(), source == null ? null : source.getBatchNumber(),
-                value.getLaboratoryStatus(), value.getReleaseStatus(), value.getTraceabilityCode(),
+                value.getLaboratoryStatus(), value.getReleaseStatus(),
+                Boolean.TRUE.equals(value.getTemporaryLabBypass()), value.getTemporaryLabBypassReason(),
+                user(value.getTemporaryLabBypassApprovedBy()), value.getTemporaryLabBypassApprovedAt(),
+                value.getTraceabilityCode(),
                 value.getStage1StartedAt(), value.getStage1CompletedAt(), value.getStage2StartedAt(),
                 value.getStage2CompletedAt());
+    }
+
+    private static ScheduleTimingStatus scheduleTiming(ProductionBatch value) {
+        if (value.getPlannedStartTime() == null || value.getTargetCompletionTime() == null) {
+            return ScheduleTimingStatus.UNSCHEDULED;
+        }
+        if (value.getStatus() == BatchStatus.CANCELLED) {
+            return ScheduleTimingStatus.CANCELLED;
+        }
+        LocalDateTime completedAt = value.getStage2CompletedAt();
+        if (completedAt != null) {
+            return completedAt.isAfter(value.getTargetCompletionTime())
+                    ? ScheduleTimingStatus.COMPLETED_LATE
+                    : ScheduleTimingStatus.COMPLETED_ON_TIME;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isAfter(value.getTargetCompletionTime())) {
+            return ScheduleTimingStatus.OVERDUE;
+        }
+        boolean started = value.getStage1StartedAt() != null;
+        if (started && Duration.between(now, value.getTargetCompletionTime()).toMinutes() <= 30) {
+            return ScheduleTimingStatus.DUE_SOON;
+        }
+        if (started) {
+            return ScheduleTimingStatus.IN_PROGRESS;
+        }
+        return now.isBefore(value.getPlannedStartTime())
+                ? ScheduleTimingStatus.SCHEDULED
+                : ScheduleTimingStatus.READY_TO_START;
     }
 
     public static StatusHistoryView statusHistory(BatchStatusHistory value) {
@@ -114,9 +151,12 @@ public final class ApiMapper {
     }
 
     public static ApprovedMaterialBatchView approvedMaterialBatch(ApprovedMaterialBatch value) {
+        ProductionBatch mixingBatch = value.getMixingBatch();
+        boolean temporaryLabBypass = mixingBatch != null
+                && Boolean.TRUE.equals(mixingBatch.getTemporaryLabBypass());
         return new ApprovedMaterialBatchView(
                 value.getId(),
-                value.getMixingBatch() == null ? null : value.getMixingBatch().getId(),
+                mixingBatch == null ? null : mixingBatch.getId(),
                 value.getLabApproval() == null ? null : value.getLabApproval().getId(),
                 value.getMixingBatchNumber(),
                 value.getMaterialCode(),
@@ -133,6 +173,10 @@ public final class ApiMapper {
                 value.getReceivedAt() == null ? value.getApprovedAt() : value.getReceivedAt(),
                 user(value.getReceivingOperator()),
                 value.getStockStatus() == null ? CompoundStockStatus.AVAILABLE : value.getStockStatus(),
+                temporaryLabBypass,
+                temporaryLabBypass ? mixingBatch.getTemporaryLabBypassReason() : null,
+                temporaryLabBypass ? user(mixingBatch.getTemporaryLabBypassApprovedBy()) : null,
+                temporaryLabBypass ? mixingBatch.getTemporaryLabBypassApprovedAt() : null,
                 value.getNotes(),
                 value.isActive(),
                 value.getUpdatedAt());
@@ -220,6 +264,7 @@ public final class ApiMapper {
                 user(value.getCurrentOperator()),
                 value.getCurrentBlankingBatch() == null ? null : value.getCurrentBlankingBatch().getId(),
                 value.getCurrentBlankingBatch() == null ? null : value.getCurrentBlankingBatch().getBatchNumber(),
+                value.getCurrentItemCode(),
                 value.getAvailableBlankQuantity(),
                 value.getGoodTyreQuantity(),
                 value.getRejectedTyreQuantity(),
