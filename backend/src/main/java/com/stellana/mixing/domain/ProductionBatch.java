@@ -41,6 +41,22 @@ public class ProductionBatch extends BaseEntity {
     @Column(nullable = false)
     private String machine;
 
+    private LocalDateTime plannedStartTime;
+
+    private LocalDateTime targetCompletionTime;
+
+    @Enumerated(EnumType.STRING)
+    private ProductionPriority productionPriority;
+
+    @Column(length = 1000)
+    private String scheduleNotes;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "scheduled_by_id")
+    private UserAccount scheduledBy;
+
+    private LocalDateTime scheduledAt;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "assigned_officer_id", nullable = false)
     private UserAccount assignedOfficer;
@@ -70,6 +86,23 @@ public class ProductionBatch extends BaseEntity {
     @Builder.Default
     private ReleaseStatus releaseStatus = ReleaseStatus.NOT_READY;
 
+    /**
+     * Temporary prototype authorization used while the Mixing laboratory module is being commissioned.
+     * This flag is deliberately separate from laboratoryStatus so a bypass can never be represented as
+     * a laboratory PASS.
+     */
+    @Builder.Default
+    private Boolean temporaryLabBypass = false;
+
+    @Column(length = 1000)
+    private String temporaryLabBypassReason;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "temporary_lab_bypass_approved_by_id")
+    private UserAccount temporaryLabBypassApprovedBy;
+
+    private LocalDateTime temporaryLabBypassApprovedAt;
+
     @Column(nullable = false, unique = true)
     private String traceabilityCode;
 
@@ -78,4 +111,3 @@ public class ProductionBatch extends BaseEntity {
     private LocalDateTime stage2StartedAt;
     private LocalDateTime stage2CompletedAt;
 }
-

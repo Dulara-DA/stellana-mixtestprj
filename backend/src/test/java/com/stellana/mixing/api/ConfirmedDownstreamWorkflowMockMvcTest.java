@@ -251,8 +251,11 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
         String admin = login("admin@stellana.local", "Admin123!");
         String blankingOperator = login("blanking.operator@stellana.local", "Blanking123!");
         var stock = stockRepository.findAllByOrderByApprovedAtDesc().get(0);
+        stock.setReceivedQuantityKg(new BigDecimal("70.000"));
         stock.setAvailableQuantityKg(new BigDecimal("70.000"));
         stock.setReservedQuantityKg(BigDecimal.ZERO);
+        stock.setConsumedQuantityKg(BigDecimal.ZERO);
+        stock.setReturnedQuantityKg(BigDecimal.ZERO);
         stock.setStockStatus(CompoundStockStatus.AVAILABLE);
         stockRepository.save(stock);
         ObjectNode statusBody = objectMapper.createObjectNode()
@@ -295,6 +298,48 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
         }
         assertThat(stockRepository.findById(stock.getId()).orElseThrow().getAvailableQuantityKg())
                 .isEqualByComparingTo("20.000");
+    }
+
+    @Test
+    @Order(4)
+    void onlyAdministratorCanCorrectACompoundReceiptWithoutOverdrawingAllocatedStock() throws Exception {
+        String admin = login("admin@stellana.local", "Admin123!");
+        String blankingOperator = login("blanking.operator@stellana.local", "Blanking123!");
+        var stock = stockRepository.findAllByOrderByApprovedAtDesc().get(0);
+        BigDecimal previousReceived = stock.getReceivedQuantityKg();
+        BigDecimal previousAvailable = stock.getAvailableQuantityKg();
+        BigDecimal correctedReceived = previousReceived.add(new BigDecimal("5.000"));
+        ObjectNode correction = objectMapper.createObjectNode()
+                .put("receivedQuantityKg", correctedReceived)
+                .put("reason", "Administrator confirmed the physical scale receipt.");
+
+        mockMvc.perform(patch("/api/blanking/compound-stock/" + stock.getId() + "/receipt")
+                        .header("Authorization", "Bearer " + blankingOperator)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(correction)))
+                .andExpect(status().isForbidden());
+
+        JsonNode updated = patchJson(
+                "/api/blanking/compound-stock/" + stock.getId() + "/receipt", admin, correction);
+        assertThat(updated.path("receivedQuantityKg").decimalValue())
+                .isEqualByComparingTo(correctedReceived);
+        assertThat(updated.path("availableQuantityKg").decimalValue())
+                .isEqualByComparingTo(previousAvailable.add(new BigDecimal("5.000")));
+        assertThat(updated.path("receivingOperator").path("role").asText()).isEqualTo("SYSTEM_ADMIN");
+
+        BigDecimal allocated = correctedReceived.subtract(updated.path("availableQuantityKg").decimalValue());
+        mockMvc.perform(patch("/api/blanking/compound-stock/" + stock.getId() + "/receipt")
+                        .header("Authorization", "Bearer " + admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(objectMapper.createObjectNode()
+                                .put("receivedQuantityKg", allocated.subtract(new BigDecimal("0.001")))
+                                .put("reason", "Invalid reduction below allocated stock."))))
+                .andExpect(status().isConflict());
+
+        assertThat(getJson("/api/blanking/inventory-transactions", admin).toString())
+                .contains("INVENTORY_CORRECTION", "Administrator confirmed the physical scale receipt.");
+        assertThat(getJson("/api/audit?limit=200", admin).toString())
+                .contains("UPDATE_COMPOUND_RECEIPT", "Administrator confirmed the physical scale receipt.");
     }
 
     private String login(String email, String password) throws Exception {

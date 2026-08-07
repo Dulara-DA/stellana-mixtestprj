@@ -8,6 +8,7 @@ import com.stellana.mixing.domain.LabSample;
 import com.stellana.mixing.domain.MixingStage;
 import com.stellana.mixing.domain.MouldingProductionRecord;
 import com.stellana.mixing.domain.ProductionBatch;
+import com.stellana.mixing.domain.ProductionReportSection;
 import com.stellana.mixing.domain.ProductionShift;
 import com.stellana.mixing.domain.UserAccount;
 import com.stellana.mixing.repository.BlankingBatchRepository;
@@ -59,6 +60,7 @@ public class CombinedProductionPdfService {
 
     @Transactional(readOnly = true)
     public GeneratedPdf generate(
+            ProductionReportSection requestedSection,
             LocalDate fromDate,
             LocalDate toDate,
             ProductionShift shift,
@@ -69,6 +71,8 @@ public class CombinedProductionPdfService {
             String cartNumber,
             String materialCode
     ) {
+        ProductionReportSection section = requestedSection == null
+                ? ProductionReportSection.COMBINED : requestedSection;
         DateRange range = normalizeRange(fromDate, toDate);
         UserAccount generatedBy = currentUserService.requireCurrentUser();
         ProductionManagerSummary summary = productionManagerService.summary(
@@ -119,17 +123,38 @@ public class CombinedProductionPdfService {
         try (PDDocument document = new PDDocument()) {
             ReportCanvas canvas = new ReportCanvas(document);
             canvas.start(
+                    reportTitle(section),
+                    reportScope(section),
                     range,
                     shift,
                     generatedBy,
                     filterDescription(pressId, operatorId, blankingBatchNumber,
                             mixingBatchNumber, cartNumber, materialCode));
-            drawSummary(canvas, summary, mixingEntries);
-            drawMixing(canvas, mixingEntries);
-            drawBlanking(canvas, blankingBatches);
-            drawCarts(canvas, carts);
-            drawMoulding(canvas, mouldingRecords);
-            drawReturns(canvas, returns);
+            if (section == ProductionReportSection.COMBINED) {
+                drawSummary(canvas, summary, mixingEntries);
+            } else {
+                drawSectionSummary(
+                        canvas, section, mixingEntries, blankingBatches,
+                        carts, mouldingRecords, returns);
+            }
+            if (section == ProductionReportSection.COMBINED
+                    || section == ProductionReportSection.MIXING) {
+                drawMixing(canvas, mixingEntries);
+            }
+            if (section == ProductionReportSection.COMBINED
+                    || section == ProductionReportSection.BLANKING) {
+                drawBlanking(canvas, blankingBatches);
+                drawCarts(canvas, carts);
+            }
+            if (section == ProductionReportSection.COMBINED
+                    || section == ProductionReportSection.MOULDING) {
+                drawMoulding(canvas, mouldingRecords);
+            }
+            if (section == ProductionReportSection.COMBINED
+                    || section == ProductionReportSection.BLANKING
+                    || section == ProductionReportSection.MOULDING) {
+                drawReturns(canvas, returns);
+            }
             canvas.note(
                     "Data reliability note",
                     "Quantities are reported in explicit kg, g and piece units. Expected blanks use issued kg "
@@ -139,12 +164,27 @@ public class CombinedProductionPdfService {
 
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             document.save(output);
-            String filename = "stellana-combined-production-report-"
+            String filename = "stellana-" + section.name().toLowerCase() + "-production-report-"
                     + range.from() + "-to-" + range.to() + ".pdf";
             return new GeneratedPdf(output.toByteArray(), filename);
         } catch (IOException exception) {
             throw new IllegalStateException("The combined production PDF could not be generated.", exception);
         }
+    }
+
+    private String reportTitle(ProductionReportSection section) {
+        return section == ProductionReportSection.COMBINED
+                ? "COMBINED PRODUCTION REPORT"
+                : section.name() + " PRODUCTION REPORT";
+    }
+
+    private String reportScope(ProductionReportSection section) {
+        return switch (section) {
+            case COMBINED -> "Mixing | Blanking | Moulding";
+            case MIXING -> "Mixing records";
+            case BLANKING -> "Blanking production | Cart dispatch | Returns";
+            case MOULDING -> "Press production | Blank returns";
+        };
     }
 
     private List<MixingEntry> mixingEntries(
@@ -213,6 +253,56 @@ public class CombinedProductionPdfService {
                 + "/" + summary.returnedBlankQuantity()
                 + " | Return variances: " + summary.returnVariances()
                 + " | Unbalanced records: " + summary.unbalancedRecords());
+    }
+
+    private void drawSectionSummary(
+            ReportCanvas canvas,
+            ProductionReportSection section,
+            List<MixingEntry> mixingEntries,
+            List<BlankingBatch> blankingBatches,
+            List<BlankingCart> carts,
+            List<MouldingProductionRecord> mouldingRecords,
+            List<BlankReturn> returns
+    ) throws IOException {
+        canvas.section("REPORT SUMMARY", "Persisted records included in the selected section.");
+        switch (section) {
+            case MIXING -> canvas.metrics(List.of(
+                    new Metric("Mixing batches", String.valueOf(mixingEntries.size())),
+                    new Metric("Planned mix", number(mixingEntries.stream()
+                            .map(value -> value.batch().getPlannedQuantityKg())
+                            .reduce(BigDecimal.ZERO, BigDecimal::add)) + " kg"),
+                    new Metric("Actual mix", number(mixingEntries.stream()
+                            .map(value -> value.batch().getActualOutputQuantityKg())
+                            .filter(value -> value != null)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add)) + " kg"),
+                    new Metric("Lab passed", String.valueOf(mixingEntries.stream()
+                            .filter(value -> value.lab() != null
+                                    && value.lab().getDecision() == com.stellana.mixing.domain.LabDecision.PASS)
+                            .count()))));
+            case BLANKING -> canvas.metrics(List.of(
+                    new Metric("Blanking batches", String.valueOf(blankingBatches.size())),
+                    new Metric("Blank output", String.valueOf(blankingBatches.stream()
+                            .map(BlankingBatch::getProductionQuantity)
+                            .filter(value -> value != null)
+                            .mapToLong(Integer::longValue).sum())),
+                    new Metric("Rejected blanks", String.valueOf(blankingBatches.stream()
+                            .mapToLong(BlankingBatch::getRejectedQuantity).sum())),
+                    new Metric("Cart transfers", String.valueOf(carts.size())),
+                    new Metric("Blank returns", String.valueOf(returns.size()))));
+            case MOULDING -> canvas.metrics(List.of(
+                    new Metric("Press entries", String.valueOf(mouldingRecords.size())),
+                    new Metric("Good tyres", String.valueOf(mouldingRecords.stream()
+                            .mapToLong(MouldingProductionRecord::getGoodTyreQuantity).sum())),
+                    new Metric("Rejected tyres", String.valueOf(mouldingRecords.stream()
+                            .mapToLong(MouldingProductionRecord::getRejectedTyreQuantity).sum())),
+                    new Metric("Rejected blanks", String.valueOf(mouldingRecords.stream()
+                            .mapToLong(MouldingProductionRecord::getRejectedBlankQuantity).sum())),
+                    new Metric("Downtime", mouldingRecords.stream()
+                            .mapToLong(MouldingProductionRecord::getDowntimeMinutes).sum() + " min"),
+                    new Metric("Blank returns", String.valueOf(returns.size()))));
+            case COMBINED -> throw new IllegalArgumentException("Combined uses the cross-section summary.");
+        }
+        canvas.text("Detailed records are listed in newest-first section tables on the following pages.");
     }
 
     private void drawMixing(ReportCanvas canvas, List<MixingEntry> entries) throws IOException {
@@ -503,17 +593,23 @@ public class CombinedProductionPdfService {
         private PDPage page;
         private PDPageContentStream stream;
         private float y;
+        private String reportTitle = "PRODUCTION REPORT";
+        private String reportScope = "Persisted production records";
 
         private ReportCanvas(PDDocument document) {
             this.document = document;
         }
 
         private void start(
+                String title,
+                String scope,
                 DateRange range,
                 ProductionShift shift,
                 UserAccount generatedBy,
                 String filters
         ) throws IOException {
+            reportTitle = title;
+            reportScope = scope;
             newPage();
             setFill(18, 38, 63);
             stream.addRect(MARGIN, y - 52, CONTENT_WIDTH, 52);
@@ -521,9 +617,9 @@ public class CombinedProductionPdfService {
             setTextColor(255, 255, 255);
             text(BOLD, 18, MARGIN + 16, y - 22, "STELLANA");
             text(REGULAR, 8, MARGIN + 16, y - 37, "REAL-TIME PRODUCTION TRACKING SYSTEM");
-            text(BOLD, 15, MARGIN + 155, y - 23, "COMBINED PRODUCTION REPORT");
+            text(BOLD, 15, MARGIN + 155, y - 23, reportTitle);
             text(REGULAR, 8, MARGIN + 230, y - 38,
-                    "Mixing | Blanking | Moulding");
+                    reportScope);
             y -= 66;
             setTextColor(20, 35, 55);
             text(BOLD, 9, MARGIN, y, "REPORT PERIOD");
@@ -679,9 +775,10 @@ public class CombinedProductionPdfService {
             stream = new PDPageContentStream(document, page);
             y = PAGE_SIZE.getHeight() - MARGIN;
             setTextColor(20, 35, 55);
-            text(BOLD, 8, MARGIN, y, "STELLANA COMBINED PRODUCTION REPORT");
+            text(BOLD, 8, MARGIN, y, "STELLANA " + reportTitle);
             setTextColor(105, 115, 130);
-            text(REGULAR, 7, MARGIN + CONTENT_WIDTH - 145, y, "Mixing | Blanking | Moulding");
+            float scopeWidth = REGULAR.getStringWidth(sanitize(reportScope)) / 1000 * 7;
+            text(REGULAR, 7, MARGIN + CONTENT_WIDTH - scopeWidth, y, reportScope);
             y -= 17;
         }
 

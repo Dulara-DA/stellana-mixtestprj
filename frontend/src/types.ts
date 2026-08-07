@@ -61,6 +61,11 @@ export type BatchStatus =
   | 'ON_HOLD' | 'RETEST_REQUIRED' | 'REPROCESSING' | 'RELEASED_TO_BLANKING'
   | 'STOPPED' | 'CANCELLED'
 
+export type ProductionPriority = 'NORMAL' | 'HIGH' | 'URGENT'
+export type ScheduleTimingStatus =
+  | 'UNSCHEDULED' | 'SCHEDULED' | 'READY_TO_START' | 'IN_PROGRESS' | 'DUE_SOON'
+  | 'OVERDUE' | 'COMPLETED_ON_TIME' | 'COMPLETED_LATE' | 'CANCELLED'
+
 export interface Batch {
   id: number
   batchNumber: string
@@ -74,6 +79,13 @@ export interface Batch {
   machine: string
   assignedOfficer: User
   createdAt: string
+  plannedStartTime?: string
+  targetCompletionTime?: string
+  productionPriority: ProductionPriority
+  scheduleNotes?: string
+  scheduledBy?: User
+  scheduledAt?: string
+  scheduleTimingStatus: ScheduleTimingStatus
   status: BatchStatus
   currentStage: number
   issueOrStoppageReason?: string
@@ -81,6 +93,10 @@ export interface Batch {
   reprocessingSourceBatchNumber?: string
   laboratoryStatus: 'PENDING' | 'PASS' | 'FAIL' | 'HOLD' | 'RETEST'
   releaseStatus: 'NOT_READY' | 'PENDING_APPROVAL' | 'APPROVED_FOR_BLANKING' | 'REPROCESSING_REQUIRED' | 'BLOCKED'
+  temporaryLabBypass: boolean
+  temporaryLabBypassReason?: string
+  temporaryLabBypassApprovedBy?: User
+  temporaryLabBypassApprovedAt?: string
   traceabilityCode: string
   stage1StartedAt?: string
   stage1CompletedAt?: string
@@ -219,7 +235,12 @@ export interface DashboardSummary {
   failedBatches: number
   stoppedOrDelayed: number
   unreadIssues: number
+  scheduledBatches: number
+  readyToStart: number
+  dueSoon: number
+  overdue: number
   activeBatchDetails: Batch[]
+  scheduleBoard: Batch[]
   batchBoard: Batch[]
   recentActivity: Audit[]
 }
@@ -253,6 +274,10 @@ export interface ApprovedMaterialBatch {
   receivedAt: string
   receivingOperator?: User
   stockStatus: 'AWAITING_RECEIPT' | 'AVAILABLE' | 'PARTIALLY_USED' | 'DEPLETED' | 'ON_HOLD' | 'REJECTED'
+  temporaryLabBypass: boolean
+  temporaryLabBypassReason?: string
+  temporaryLabBypassApprovedBy?: User
+  temporaryLabBypassApprovedAt?: string
   notes?: string
   active: boolean
   lastUpdatedAt: string
@@ -358,6 +383,7 @@ export interface Press {
   currentOperator?: User
   currentBlankingBatchId?: number
   currentBlankingBatchNumber?: string
+  currentItemCode?: string
   availableBlankQuantity: number
   goodTyreQuantity: number
   rejectedTyreQuantity: number
@@ -575,4 +601,31 @@ export interface ProductionManagerSummary {
     downtimeMinutes: number
   }>
   recentRecords: MouldingProductionRecord[]
+}
+
+export interface MixingReportRow {
+  id: number
+  batchNumber: string
+  recipeCode: string
+  revisionNumber: string
+  plannedQuantityKg: number
+  actualOutputQuantityKg?: number
+  machine: string
+  officer: User
+  officerEmployeeId: string
+  productionDate: string
+  shift: ProductionShift
+  stage1StartTime?: string
+  stage1EndTime?: string
+  stage2StartTime?: string
+  stage2EndTime?: string
+  laboratoryDecision: 'PENDING' | 'PASS' | 'FAIL' | 'HOLD' | 'RETEST'
+  releaseStatus: 'NOT_READY' | 'PENDING_APPROVAL' | 'APPROVED_FOR_BLANKING' | 'REPROCESSING_REQUIRED' | 'BLOCKED'
+  status: BatchStatus
+}
+
+export interface ProductionReportRecords {
+  mixingRecords: MixingReportRow[]
+  blankingRecords: BlankingBatch[]
+  mouldingRecords: MouldingProductionRecord[]
 }

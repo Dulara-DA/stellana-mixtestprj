@@ -147,15 +147,17 @@ npm run build
 The backend suite includes JUnit/Mockito unit tests, MockMvc authentication
 checks, public traceability checks, and end-to-end workflow tests covering
 material request/issue, both mixing stages, sample submission, laboratory pass,
-blanking release, batch history, issue creation, manager reply, calculated
+blanking release, controlled temporary release without lab sampling, batch
+history, issue creation, manager reply, calculated
 Blanking yield, hold/release/dispatch, one-time receipt, partial Press
 consumption, rejected weight, unused-blank reservation/confirmation, ledger and
 genealogy.
 It also tests shift boundaries, previous-date ownership for the overnight shift,
 role restrictions, one-time cart receipt, press inventory calculations,
 Moulding quantity validation, rejected-weight calculations, and controlled
-shortage status transitions. A secured PDF test also validates the combined
-Mixing, Blanking and Moulding report structure, section content and role access.
+shortage status transitions. A secured PDF test also validates the combined and
+section-specific Mixing, Blanking and Moulding report structure, section content
+and role access.
 
 ## Prototype workflow
 
@@ -167,6 +169,10 @@ Mixing, Blanking and Moulding report structure, section content and role access.
 5. Start and complete Stage 1, then Stage 2.
 6. Mark the sample as sent and record results as Manager/Admin.
 7. Release a passed batch or route a failed batch to reprocessing.
+   While the laboratory unit is under development, a Manager/Admin may instead
+   select **Released to Blanking** immediately after Stage 2, enter a mandatory
+   reason, and confirm the temporary lab bypass. This keeps laboratory status
+   `PENDING`; it never records a fake `PASS`.
 8. Watch dashboard cards and activity update through WebSockets.
 9. Open the traceability view or scan the generated QR code.
 10. Create an issue as Mixing Officer and reply as Manager.
@@ -198,9 +204,10 @@ Mixing, Blanking and Moulding report structure, section content and role access.
    can acknowledge, prepare, link, and dispatch a cart in the same conversation.
 10. Sign in as Manager/Admin and open **Production Report** to filter and review
    output, rejections, inventories, shortages, press state, and delayed
-   transfers. Select **Download combined PDF** to download the same filtered
-   period with detailed Mixing stages and lab decisions, Blanking batches and
-   cart transfers, and Moulding production entries.
+   transfers. Mixing, Blanking and Moulding records are displayed in separate,
+   newest-first tables. Select **Combined**, **Mixing**, **Blanking**, or
+   **Moulding** from the PDF report selector to download the same filtered
+   period for one section or all three sections together.
 
 Demo seed data includes three presses, the confirmed sample Compound
 `A-96-50`/Mixing batch `6160`, Lab PASS and 60 kg stock receipt, a 100 g blank
@@ -311,9 +318,10 @@ Swagger UI contains the complete request/response schemas. Main route groups:
 | `/api/auth` | JWT login |
 | `/api/production/shift` | Current server production date and shift |
 | `/api/recipes`, `/api/batches`, `/api/stages` | Existing revision-controlled Mixing workflow |
+| `PUT /api/batches/{id}/schedule` | Manager/Admin Mixing schedule, reassignment and conflict confirmation |
 | `/api/material-requests`, `/api/lab` | Stores issue and laboratory workflow |
 | `/api/blanking/approved-materials` | Passed/released Mixing material available to Blanking |
-| `/api/blanking/compound-stock` | Detailed stock plus controlled hold/release/reject status |
+| `/api/blanking/compound-stock` | Detailed stock, controlled status, and audited Administrator receipt corrections |
 | `/api/blanking/batches` | Create, start, complete and audited-supervisor-correct Blanking batches |
 | `/api/blanking/carts` | Prepare, hold, release and dispatch traceable carts |
 | `/api/blanking/returns` | Confirm and review unused-blank returns |
@@ -326,8 +334,9 @@ Swagger UI contains the complete request/response schemas. Main route groups:
 | `/api/moulding/returns` | Prepare/send unused blanks and review return history |
 | `/api/shortages` | Cross-section request/status/message history |
 | `/api/production-manager/summary` | Filtered downstream metrics/reporting |
+| `/api/production-manager/records` | Ordered Mixing, Blanking and Moulding report rows |
 | `/api/production-manager/genealogy/{mixingBatchNumber}` | Full Mixing-to-return genealogy |
-| `/api/production-manager/report.pdf` | Secured combined Mixing, Blanking and Moulding PDF download |
+| `/api/production-manager/report.pdf?section=COMBINED` | Secured combined or section-specific production PDF download |
 | `/api/audit` | Append-only activity history |
 
 ## Role boundaries
@@ -335,7 +344,11 @@ Swagger UI contains the complete request/response schemas. Main route groups:
 - Blanking Operators/Supervisors create batches, carts and dispatches and
   respond to shortage requests.
 - Moulding Operators/Supervisors receive carts, submit production and request
-  blanks. Supervisors can control press state and authorize exceptional receipt.
+  blanks. An ordinary operator completes only the press entry they started;
+  Supervisors and System Administrators can complete another operator's active
+  entry when operationally required. Only one production entry can be active on
+  a press at a time. Supervisors can also control press state and authorize
+  exceptional receipt.
 - Managers see downstream status/reporting and can make the explicitly
   authorized approvals and corrections. System Administrators can perform all
   operational controls across Mixing, Blanking and Moulding, as well as manage
@@ -383,6 +396,12 @@ placeholder, not a confirmed factory production rule.
 - Obsolete revisions cannot be assigned to new batches.
 - Batch transitions are checked by the backend.
 - Stage 2 requires a completed Stage 1 unless a Manager/Admin supplies an override reason.
+- Managers and System Administrators can plan or reschedule a batch with a
+  start time, target completion, priority, mixer and assigned officer. The live
+  dashboard separates upcoming, ready, due-soon and overdue schedules.
+- An assigned officer cannot start Stage 1 before the planned time. Manager or
+  Administrator early start and overlapping schedule acceptance both require a
+  reason and are written to the audit log. Overdue batches remain operable.
 - Enter the physical tag number (for example `6078`) when creating a batch. The
   UI derives a factory reference such as `A-96 × 6078` from the selected recipe.
 - Starting a stage automatically records its IN time; completing it records its
@@ -392,6 +411,11 @@ placeholder, not a confirmed factory production rule.
   batch's current stage, IN/OUT times, officer, mixer and controlled status.
 - Mixer capacity is validated at 240 kg. The unconfirmed 0.7 fill factor is recorded as a configurable placeholder and is **not** used in load calculations.
 - Laboratory specifications are configurable; the prototype does not invent pass/fail limits.
+- Temporary lab-bypass release is restricted to Manager/System Administrator,
+  only from `STAGE_2_COMPLETED`, and requires a reason plus confirmation. The
+  approver/time/reason are audited and displayed in Batch Details, Batch List,
+  and Compound Stock. Remove this temporary path when the laboratory workflow
+  becomes operational.
 - Important production records use statuses rather than permanent deletion.
 - A cart receipt is unique per cart. Wrong-press receipt requires a Moulding
   Supervisor/Manager/Admin override and reason.

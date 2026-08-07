@@ -8,7 +8,12 @@
   prepared for phased activation.
 - **Recipe** is the stable recipe identity (`recipeCode`, compound name) and owns many immutable **RecipeRevision** records.
 - **RecipeRevision** owns ordered **RecipeIngredient** rows. A revision is `DRAFT`, `ACTIVE`, or `OBSOLETE`.
-- **ProductionBatch** references exactly one **RecipeRevision** and one assigned officer. The reference is never moved when newer revisions are created.
+- **ProductionBatch** references exactly one **RecipeRevision** and one assigned
+  officer. It may also hold a planned start, target completion, priority,
+  planning note, scheduler and schedule timestamp. A temporary laboratory-bypass
+  release stores its explicit flag, reason, Manager/Admin approver, and approval
+  time separately from the laboratory decision. The recipe reference is never
+  moved when newer revisions are created.
 - A batch exposes a derived factory reference (`recipe code × physical batch
   number`), while storing both values separately for reliable searching and
   traceability.
@@ -23,8 +28,10 @@
 ## Blanking and Moulding relationships
 
 - **ApprovedMaterialBatch** is the durable boundary between Mixing/Lab and
-  Blanking. It references the passed/released **ProductionBatch** and
-  **LabSample**, snapshots mixing batch number/material/compound, and carries
+  Blanking. It references the released **ProductionBatch** and, for a normal
+  Lab-PASS release, its **LabSample**. A temporary bypass has no LabSample and
+  keeps `labStatus=PENDING`; its authorization is derived from ProductionBatch.
+  The entity snapshots mixing batch number/material/compound and carries
   planned, received, available, reserved, consumed and returned quantities in
   kilograms. In the UI this entity is presented as Compound Stock; a separate
   duplicate stock model was intentionally not introduced.
@@ -61,7 +68,7 @@
 
 ```text
 ProductionBatch ── LabSample
-       │ PASS/release
+       │ PASS/release OR audited temporary bypass (PENDING)
        ▼
 ApprovedMaterialBatch ──< BlankingBatch ──< BlankingCart
                                                │
@@ -87,34 +94,43 @@ Press ──< MaterialShortageRequest ──< RequestMessage
 5. A Mixing Officer can create only self-assigned batches. Managers and System
    Administrators can select another Mixing Officer during batch creation.
 6. Stage 2 cannot start until Stage 1 completes, except for an authorized Manager/Admin override with a reason.
-7. Starting a stage records its server-side IN time. Completing it records the
+7. Before Stage 1, only a Manager or Administrator can set or revise a schedule,
+   officer, or mixer. Officer/mixer overlaps and starts before the planned time
+   require an authorized reason; both are audited. A target deadline never
+   forces a machine stop or record completion.
+8. Starting a stage records its server-side IN time. Completing it records the
    server-side OUT time; Stage 1 completion also moves the batch to
    `READY_FOR_STAGE_2` for sulphur addition.
-8. Production records are cancelled, closed, made obsolete, or deactivated rather than deleted through normal APIs.
-9. QR codes contain only a safe random traceability reference/URL.
-10. Blanking may temporarily use a manual physical Mixing batch/code with no
+9. Production records are cancelled, closed, made obsolete, or deactivated rather than deleted through normal APIs.
+10. A normal Blanking release requires Lab `PASS`. The temporary prototype
+    exception is accepted only from `STAGE_2_COMPLETED`, only by Manager/Admin,
+    with a reason and explicit confirmation. It creates visibly marked
+    `PENDING` compound stock and an append-only audit entry.
+11. QR codes contain only a safe random traceability reference/URL.
+12. Blanking may temporarily use a manual physical Mixing batch/code with no
     approved-stock reference. When an approved-stock reference is supplied, Lab
-    PASS, controlled status, reservation, and non-negative kg rules still apply.
-11. A cart reserves good blank count from its source batch before dispatch.
-12. Receipt requires `DISPATCHED`, is unique per cart, and atomically adds
+    PASS or an audited temporary lab bypass, controlled status, reservation,
+    and non-negative kg rules still apply.
+13. A cart reserves good blank count from its source batch before dispatch.
+14. Receipt requires `DISPATCHED`, is unique per cart, and atomically adds
     quantity to the receiving Press. A wrong-press override requires an
     authorized role and reason.
-13. Moulding validates `good tyres + rejected tyres + rejected blanks <=
+15. Moulding validates `good tyres + rejected tyres + rejected blanks <=
     received/available blanks`, then atomically updates cart and Press balances.
-14. Manager production corrections preserve the original record identity,
+16. Manager production corrections preserve the original record identity,
     rebalance inventory, and append an old/new/reason audit event.
-15. Official production date, shift, IN/OUT timestamps and employee ID snapshots
+17. Official production date, shift, IN/OUT timestamps and employee ID snapshots
     are server-controlled.
-16. Expected blanks use `(issued kg × 1000) ÷ average grams`; the exact decimal
+18. Expected blanks use `(issued kg × 1000) ÷ average grams`; the exact decimal
     is stored at six decimal places and the whole-piece value is the floor.
     Fractional results are explicitly flagged instead of silently rounded.
-17. Completing Blanking recalculates used and remaining kilograms on the server.
+19. Completing Blanking recalculates used and remaining kilograms on the server.
     A measured imbalance requires a Blanking Supervisor, Manager or
     Administrator plus a reason.
-18. Cart hold, release, dispatch, receipt, production and return transitions are
+20. Cart hold, release, dispatch, receipt, production and return transitions are
     backend controlled. Pessimistic row locks and optimistic entity versions
     protect stock, batch, cart and press counters against concurrent updates.
-19. A return deducts/reserves Press and Cart inventory when prepared, and adds
+21. A return deducts/reserves Press and Cart inventory when prepared, and adds
     pieces back to Blanking only after confirmed receipt. Duplicate receipt,
     dispatch and return confirmation are rejected.
 

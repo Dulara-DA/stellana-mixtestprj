@@ -15,8 +15,11 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
   completes. The prototype records both from the backend server clock to protect
   the audit history.
 - The final design will use only Lab `PASS` compound released from Mixing.
-  Temporarily, Blanking batch creation accepts a manually entered physical
-  Mixing batch number and compound code until the Lab workflow is introduced.
+  While the Lab unit is under development, a Manager or System Administrator
+  may explicitly release a `STAGE_2_COMPLETED` batch without sampling. A reason,
+  approver and approval time are retained; lab status remains `PENDING` and is
+  never converted to a false `PASS`. Blanking also retains temporary manual
+  physical Mixing batch and compound-code entry for prototype testing.
 - Blanking expected pieces are calculated from issued kilograms and average
   blank grams. Actual used and remaining compound are recalculated by the
   backend.
@@ -28,6 +31,16 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
 ## Prototype assumptions
 
 - A batch has one assigned Mixing Officer at a time.
+- A planned Mixing time window contains one planned start and one target Stage 2
+  completion time. The target is an operational deadline, not an automatic
+  machine stop or forced completion.
+- A batch becomes `READY_TO_START` when its planned start is reached. It remains
+  startable when overdue. The prototype marks an active batch `DUE_SOON` during
+  the final 30 minutes before its target; confirm the preferred warning window.
+- Before Stage 1 starts, Managers and System Administrators may reschedule,
+  reassign the officer, or change the mixer. Overlapping officer/mixer windows
+  require an explicit confirmation reason. Early starts require a management
+  override reason.
 - A single machine identifier is stored as text until the mixer master-data list is confirmed.
 - Maximum planned batch quantity is 240 kg. The mentioned fill factor of 0.7 is stored in configuration but is not used to calculate allowed load.
 - A recipe revision is treated as approved when it becomes `ACTIVE`; `approvedBy` and approval time are captured where available.
@@ -35,6 +48,8 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
 - Manual Blanking source entry is explicitly a temporary prototype mode. A null
   approved-stock reference identifies these records; no Lab `PASS` is inferred.
 - Release and reprocessing decisions are currently allowed for Manager and System Administrator.
+- Temporary release without lab sampling cannot be used after a known `FAIL`,
+  `HOLD`, or `RETEST` decision and cannot be approved by a Mixing Officer.
 - Every batch uses a unique random traceability reference. No authentication or user secrets are encoded.
 - Quantities use decimal kilograms or the ingredient's explicitly selected unit.
 - Timestamps use the server timezone (`Asia/Colombo`) for display and UTC-capable ISO transport.
@@ -110,3 +125,7 @@ All uncertain production rules remain configurable or marked **To Be Confirmed (
     inventory, or a quarantine location?
 33. Is the entered average blank weight measured per batch, inherited from item
     master data, or both with tolerance checking?
+34. What warning interval should define `DUE_SOON`, and which roles should
+    receive escalation notifications when a Mixing batch becomes overdue?
+35. May one officer or mixer ever be deliberately scheduled for overlapping
+    batches (for setup, handover, or parallel assistance), and who approves it?

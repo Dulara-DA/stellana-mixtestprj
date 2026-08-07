@@ -13,7 +13,6 @@ const TOPICS = ['/topic/blanking'] as const
 
 const initialForm = {
   batchNumber: '',
-  mixingBatchNumber: '',
   materialCode: '',
   materialConsumedKg: '',
   itemCode: '',
@@ -66,6 +65,7 @@ export function BlankingBatchesPage() {
         method: 'POST',
         body: JSON.stringify({
           ...form,
+          mixingBatchNumber: form.batchNumber,
           materialConsumedKg: Number(form.materialConsumedKg),
         }),
       })
@@ -123,12 +123,11 @@ export function BlankingBatchesPage() {
         <form onSubmit={create} className="card mb-7 p-5 sm:p-6">
           <div className="mb-5 flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-blue-100 text-process"><Plus size={21} /></div><div><h2 className="font-black text-ink">Create blanking batch</h2><p className="text-xs text-slate-500">Production date, shift, employee ID and creation time come from the server.</p></div></div>
           <p className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-            Temporary prototype mode: enter the physical Mixing batch and compound code manually.
+            Temporary prototype mode: enter the physical Batch No. and compound code manually.
             Laboratory approval will be connected later.
           </p>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-            <label><span className="label">Blanking batch no.</span><input className="field" required value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} placeholder="BLK-2026-001" /></label>
-            <label><span className="label">Mixing batch no.</span><input className="field" required value={form.mixingBatchNumber} onChange={(e) => setForm({ ...form, mixingBatchNumber: e.target.value })} placeholder="6160" /></label>
+            <label><span className="label">Batch No.</span><input className="field" required value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} placeholder="6160" /></label>
             <label><span className="label">Compound / material code</span><input className="field" required value={form.materialCode} onChange={(e) => setForm({ ...form, materialCode: e.target.value })} placeholder="A-96-50" /></label>
             <label><span className="label">Compound issued (kg)</span><input className="field" required min="0.001" step="0.001" type="number" value={form.materialConsumedKg} onChange={(e) => setForm({ ...form, materialConsumedKg: e.target.value })} /></label>
             <label><span className="label">Operator</span><input className="field bg-slate-50" value={`${user?.fullName} · ${user?.employeeId ?? 'ID TBC'}`} disabled /></label>
@@ -150,10 +149,10 @@ export function BlankingBatchesPage() {
       {batches.length === 0 ? <EmptyState title="No blanking batches" message="Create the first batch from a passed, released Mixing material batch." /> : (
         <div className="table-shell">
           <table>
-            <thead><tr><th>Batch / source</th><th>Official shift</th><th>Quantities</th><th>IN / OUT</th><th>Operator</th><th>Status</th><th>Action</th></tr></thead>
+            <thead><tr><th>Batch No. / compound</th><th>Official shift</th><th>Quantities</th><th>IN / OUT</th><th>Operator</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>{batches.map((batch) => (
               <tr key={batch.id}>
-                <td><p className="font-black text-ink">{batch.batchNumber}</p><p className="mt-1 text-xs">{batch.mixingBatchNumber} · {batch.materialCode}</p></td>
+                <td><p className="font-black text-ink">{batch.batchNumber}</p><p className="mt-1 text-xs">{batch.materialCode}</p></td>
                 <td>{batch.productionDate}<p className="text-xs text-slate-500">{batch.shift.replace('_', ' ')}</p></td>
                 <td>{batch.materialConsumedKg} kg<p className="text-xs text-slate-500">{batch.actualGoodBlankQuantity ?? 0} good blanks · {batch.rejectedQuantity} rejected</p><p className="text-xs text-slate-500">{batch.actualUsedCompoundWeightKg} kg used · {batch.remainingCompoundWeightKg} kg remaining</p></td>
                 <td>{formatDateTime(batch.startTime)}<p className="mt-1 text-xs text-slate-500">{formatDateTime(batch.endTime)}</p></td>

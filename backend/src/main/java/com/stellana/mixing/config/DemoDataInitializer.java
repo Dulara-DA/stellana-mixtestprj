@@ -57,6 +57,7 @@ public class DemoDataInitializer implements CommandLineRunner {
                     && userRepository.existsByEmailIgnoreCase("officer@stellana.local")
                     && userRepository.existsByEmailIgnoreCase("admin@stellana.local")) {
                 seedDownstreamData();
+                ensureMixingSchedules();
             }
             return;
         }
@@ -232,6 +233,31 @@ public class DemoDataInitializer implements CommandLineRunner {
                 .actionTime(LocalDateTime.now()).build());
 
         seedDownstreamData();
+        ensureMixingSchedules();
+    }
+
+    private void ensureMixingSchedules() {
+        UserAccount manager = requireUser("manager@stellana.local");
+        batchRepository.findAllByOrderByCreatedAtDesc().stream()
+                .filter(batch -> batch.getPlannedStartTime() == null)
+                .filter(batch -> batch.getStage2CompletedAt() == null && batch.getStatus() != BatchStatus.CANCELLED)
+                .filter(batch -> batch.getBatchNumber().equalsIgnoreCase("MX-260723-01")
+                        || batch.getBatchNumber().equalsIgnoreCase("MX-260723-03"))
+                .forEach(batch -> {
+                    boolean activeDemo = batch.getBatchNumber().equalsIgnoreCase("MX-260723-01");
+                    LocalDateTime start = activeDemo
+                            ? (batch.getStage1StartedAt() == null ? LocalDateTime.now().minusMinutes(18) : batch.getStage1StartedAt())
+                            : LocalDateTime.now().plusHours(1);
+                    batch.setPlannedStartTime(start);
+                    batch.setTargetCompletionTime(activeDemo ? LocalDateTime.now().plusMinutes(25) : start.plusHours(2));
+                    batch.setProductionPriority(activeDemo ? ProductionPriority.HIGH : ProductionPriority.NORMAL);
+                    batch.setScheduleNotes(activeDemo
+                            ? "Demonstration run approaching its target completion time."
+                            : "Demonstration batch awaiting its planned production window.");
+                    batch.setScheduledBy(manager);
+                    batch.setScheduledAt(LocalDateTime.now());
+                    batchRepository.save(batch);
+                });
     }
 
     private void ensureEmployeeIds() {

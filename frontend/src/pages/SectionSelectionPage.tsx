@@ -1,7 +1,8 @@
-import { Activity, ArrowRight, CircleDot, Factory, Layers3, LogOut } from 'lucide-react'
+import { Activity, ArrowRight, CircleDot, Layers3, LogOut } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { BrandLogo } from '../components/BrandLogo'
 import { api, formatDateTime, humanize } from '../lib/api'
 import type { Role, ShiftContext } from '../types'
 
@@ -51,14 +52,11 @@ export function SectionSelectionPage() {
   return (
     <main className="min-h-screen bg-ink px-5 py-8 text-white sm:px-8 lg:px-12">
       <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-5">
-        <div className="flex items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-safety text-ink">
-            <Factory size={26} />
+        <div>
+          <div className="rounded-2xl bg-white px-4 py-2.5 shadow-lg shadow-black/10">
+            <BrandLogo className="h-auto w-52" eager />
           </div>
-          <div>
-            <p className="text-xl font-black tracking-tight">STELLANA</p>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Production tracking</p>
-          </div>
+          <p className="mt-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Production tracking</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">

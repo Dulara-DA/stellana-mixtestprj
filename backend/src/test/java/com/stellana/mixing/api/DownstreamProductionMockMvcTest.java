@@ -246,6 +246,14 @@ class DownstreamProductionMockMvcTest {
                 objectMapper.createObjectNode()
                         .put("pressId", press.get("id").asLong())
                         .put("cartId", cartId));
+        String mouldingOperatorToken = login("moulding.operator@stellana.local", "Moulding123!");
+        mockMvc.perform(post("/api/moulding/records/" + production.get("id").asLong() + "/complete")
+                        .header("Authorization", "Bearer " + mouldingOperatorToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(completion(4, 1, 0, 900, 0, ""))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(
+                        "Only the press-entry operator who started this record may complete it."));
         JsonNode completed = postJson("/api/moulding/records/" + production.get("id").asLong() + "/complete",
                 adminToken, completion(4, 1, 0, 900, 0, ""));
         assertThat(completed.get("status").asText()).isEqualTo("COMPLETED");
@@ -259,6 +267,22 @@ class DownstreamProductionMockMvcTest {
                         .put("priority", "NORMAL")
                         .put("message", "Administrator-created shortage request."));
         assertThat(shortage.get("status").asText()).isEqualTo("OPEN");
+    }
+
+    @Test
+    void mouldingOperatorCanSelectAndPersistTheOngoingPressItem() throws Exception {
+        String mouldingToken = login("moulding.operator@stellana.local", "Moulding123!");
+        JsonNode press = getJson("/api/moulding/presses", mouldingToken).get(0);
+
+        JsonNode updated = patchJson(
+                "/api/moulding/presses/" + press.get("id").asLong() + "/current-item",
+                mouldingToken,
+                objectMapper.createObjectNode().put("itemCode", "UG500x50"));
+
+        assertThat(updated.get("currentItemCode").asText()).isEqualTo("UG500x50");
+        JsonNode persisted = find(getJson("/api/moulding/presses", mouldingToken),
+                "id", press.get("id").asText());
+        assertThat(persisted.get("currentItemCode").asText()).isEqualTo("UG500x50");
     }
 
     private ObjectNode completion(

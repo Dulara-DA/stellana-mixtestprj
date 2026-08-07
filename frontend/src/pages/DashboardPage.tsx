@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Client } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
 import {
-  AlertTriangle, ArrowRight, Boxes, Clock3, FlaskConical, MailWarning,
+  AlertTriangle, ArrowRight, Boxes, CalendarClock, Clock3, FlaskConical, MailWarning,
   PackageCheck, RadioTower, ShieldCheck, TimerReset,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -20,7 +20,12 @@ const empty: DashboardSummary = {
   failedBatches: 0,
   stoppedOrDelayed: 0,
   unreadIssues: 0,
+  scheduledBatches: 0,
+  readyToStart: 0,
+  dueSoon: 0,
+  overdue: 0,
   activeBatchDetails: [],
+  scheduleBoard: [],
   batchBoard: [],
   recentActivity: [],
 }
@@ -39,6 +44,7 @@ export function DashboardPage() {
         ...empty,
         ...response,
         activeBatchDetails: response.activeBatchDetails ?? [],
+        scheduleBoard: response.scheduleBoard ?? [],
         batchBoard: response.batchBoard ?? response.activeBatchDetails ?? [],
         recentActivity: response.recentActivity ?? [],
       })
@@ -50,7 +56,10 @@ export function DashboardPage() {
 
   useEffect(() => {
     void load()
-    const ticker = window.setInterval(() => setNow(Date.now()), 30_000)
+    const ticker = window.setInterval(() => {
+      setNow(Date.now())
+      void load()
+    }, 30_000)
     if (!token) return () => window.clearInterval(ticker)
 
     const client = new Client({
@@ -91,6 +100,12 @@ export function DashboardPage() {
     green: 'bg-emerald-100 text-emerald-700',
     red: 'bg-red-100 text-red-700',
   }
+  const scheduleMetrics = [
+    { label: 'Upcoming', value: summary.scheduledBatches, status: 'SCHEDULED' },
+    { label: 'Ready to start', value: summary.readyToStart, status: 'READY_TO_START' },
+    { label: 'Due soon', value: summary.dueSoon, status: 'DUE_SOON' },
+    { label: 'Overdue', value: summary.overdue, status: 'OVERDUE' },
+  ]
 
   return (
     <div>
@@ -123,6 +138,39 @@ export function DashboardPage() {
           </div>
         ))}
       </div>
+
+      <section className="card mb-6 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-violet-100 text-violet-700"><CalendarClock size={20} /></div>
+            <div><h2 className="text-lg font-black text-ink">Mixing production schedule</h2><p className="mt-1 text-xs text-slate-500">Live planned windows, assigned officers, and deadline warnings</p></div>
+          </div>
+          {['MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '')
+            ? <Link to="/batches/new" className="btn-secondary">Plan a batch</Link>
+            : <Link to="/stages" className="btn-secondary">Open stage controls</Link>}
+        </div>
+        <div className="grid gap-px bg-slate-200 sm:grid-cols-4">
+          {scheduleMetrics.map((metric) => <div key={metric.label} className="flex items-center justify-between bg-white px-5 py-4"><div><p className="text-2xl font-black text-ink">{metric.value}</p><p className="text-xs font-semibold text-slate-500">{metric.label}</p></div><StatusBadge status={metric.status} /></div>)}
+        </div>
+        {summary.scheduleBoard.length === 0 ? (
+          <p className="px-6 py-8 text-center text-sm text-slate-500">No active time-window schedules. Managers and administrators can plan one when creating or opening a batch.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table>
+              <thead><tr><th>Batch</th><th>Planned start</th><th>Target completion</th><th>Officer / Mixer</th><th>Priority</th><th>Timing</th><th aria-label="Open" /></tr></thead>
+              <tbody>{summary.scheduleBoard.map((batch) => <tr key={batch.id}>
+                <td><p className="font-black text-ink">{batch.factoryReference}</p><p className="mt-1 text-xs text-slate-500">{batch.plannedQuantityKg} kg · {batch.compoundName}</p></td>
+                <td className="whitespace-nowrap font-semibold">{formatDateTime(batch.plannedStartTime)}</td>
+                <td className="whitespace-nowrap font-semibold">{formatDateTime(batch.targetCompletionTime)}</td>
+                <td>{batch.assignedOfficer.fullName}<p className="mt-1 text-xs text-slate-500">{batch.machine}</p></td>
+                <td><StatusBadge status={batch.productionPriority} /></td>
+                <td><StatusBadge status={batch.scheduleTimingStatus} /></td>
+                <td><Link to={`/stages?batch=${batch.id}`} className="grid h-10 w-10 place-items-center rounded-xl text-process hover:bg-blue-50" aria-label={`Open stage controls for ${batch.batchNumber}`}><ArrowRight size={18} /></Link></td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="card mb-6 overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">

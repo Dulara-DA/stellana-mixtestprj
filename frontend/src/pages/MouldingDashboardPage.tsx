@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { Boxes, CircleDot, Factory, PackageCheck, Truck } from 'lucide-react'
+import { Boxes, CircleDot, Factory, PackageCheck, PencilLine, Truck } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { LiveIndicator } from '../components/LiveIndicator'
@@ -36,12 +36,15 @@ export function MouldingDashboardPage() {
   const canOpenProduction = ['MOULDING_OPERATOR', 'MOULDING_SUPERVISOR', 'MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '')
   const canViewManagerReport = ['MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '')
   const canChangePressStatus = ['MOULDING_SUPERVISOR', 'MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '')
+  const canUpdateCurrentItem = ['MOULDING_OPERATOR', 'MOULDING_SUPERVISOR', 'MANAGER', 'SYSTEM_ADMIN'].includes(user?.role ?? '')
   const [presses, setPresses] = useState<Press[]>([])
   const [carts, setCarts] = useState<BlankingCart[]>([])
   const [shortages, setShortages] = useState<MaterialShortage[]>([])
   const [filters, setFilters] = useState({ press: '', date: '', shift: '', batch: '', status: '', blankingOperator: '', itemCode: '', compoundCode: '' })
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [itemDrafts, setItemDrafts] = useState<Record<number, string>>({})
+  const [savingItemForPress, setSavingItemForPress] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -57,6 +60,10 @@ export function MouldingDashboardPage() {
     } catch (reason) { setError(displayError(reason)) }
   }, [])
   const connected = useRealtimeRefresh(load, TOPICS)
+  const itemCodeOptions = useMemo(() => Array.from(new Set([
+    ...presses.map((press) => press.currentItemCode),
+    ...carts.map((cart) => cart.itemCode),
+  ].filter((value): value is string => Boolean(value?.trim())))).sort((left, right) => left.localeCompare(right)), [carts, presses])
   const filteredCarts = useMemo(() => carts.filter((cart) => {
     const context = cartFactoryContext(cart.dispatchedAt ?? cart.createdAt)
     return (!filters.press || cart.destinationPressId === Number(filters.press))
@@ -98,6 +105,33 @@ export function MouldingDashboardPage() {
     } catch (reasonValue) { setError(displayError(reasonValue)) }
   }
 
+  const updateCurrentItem = async (press: Press) => {
+    const itemCode = (itemDrafts[press.id] ?? press.currentItemCode ?? '').trim()
+    if (itemCode === (press.currentItemCode ?? '')) return
+    if (!window.confirm(itemCode
+      ? `Set ${itemCode} as the ongoing item on ${press.pressNumber}?`
+      : `Clear the ongoing item from ${press.pressNumber}?`)) return
+    setSavingItemForPress(press.id)
+    setError('')
+    try {
+      await api(`/api/moulding/presses/${press.id}/current-item`, {
+        method: 'PATCH',
+        body: JSON.stringify({ itemCode }),
+      })
+      setItemDrafts((current) => {
+        const next = { ...current }
+        delete next[press.id]
+        return next
+      })
+      setMessage(`${press.pressNumber} ongoing item ${itemCode ? `set to ${itemCode}` : 'cleared'}.`)
+      await load()
+    } catch (reason) {
+      setError(displayError(reason))
+    } finally {
+      setSavingItemForPress(null)
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -108,6 +142,10 @@ export function MouldingDashboardPage() {
       />
       {error && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
       {message && <div role="status" className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{message}</div>}
+
+      <datalist id="moulding-item-codes">
+        {itemCodeOptions.map((itemCode) => <option key={itemCode} value={itemCode} />)}
+      </datalist>
 
       <div className="mb-7 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {presses.map((press) => (
@@ -131,6 +169,30 @@ export function MouldingDashboardPage() {
               <div className="rounded-xl bg-emerald-50 p-3"><p className="text-2xl font-black text-emerald-700">{press.goodTyreQuantity}</p><p className="text-xs text-emerald-700">Good tyres</p></div>
               <div className="rounded-xl bg-red-50 p-3"><p className="text-2xl font-black text-red-700">{press.rejectedTyreQuantity + press.rejectedBlankQuantity}</p><p className="text-xs text-red-700">Total rejected</p></div>
             </div>
+            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-3">
+              <label htmlFor={`press-item-${press.id}`} className="label">Ongoing item code</label>
+              {canUpdateCurrentItem ? (
+                <div className="mt-1 flex gap-2">
+                  <input
+                    id={`press-item-${press.id}`}
+                    className="field min-w-0 flex-1 bg-white font-bold uppercase"
+                    list="moulding-item-codes"
+                    maxLength={100}
+                    value={itemDrafts[press.id] ?? press.currentItemCode ?? ''}
+                    onChange={(event) => setItemDrafts((current) => ({ ...current, [press.id]: event.target.value }))}
+                    onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void updateCurrentItem(press) } }}
+                    placeholder="Select or enter, e.g. UG500x50"
+                  />
+                  <button
+                    type="button"
+                    className="btn-primary shrink-0 px-3"
+                    disabled={savingItemForPress === press.id || (itemDrafts[press.id] ?? press.currentItemCode ?? '').trim() === (press.currentItemCode ?? '')}
+                    onClick={() => void updateCurrentItem(press)}
+                  >{savingItemForPress === press.id ? 'Saving…' : 'Save'}</button>
+                </div>
+              ) : <p id={`press-item-${press.id}`} className="mt-1 font-black text-ink">{press.currentItemCode ?? 'Not selected'}</p>}
+              <p className="mt-1 text-xs text-slate-500">Choose a previous item from the dropdown or type a new item code.</p>
+            </div>
             <div className="mt-4 grid gap-1 text-xs text-slate-500">
               <p>Shift: <span className="font-bold text-slate-700">{press.currentShift.replace('_', ' ')}</span></p>
               <p>Operator: <span className="font-bold text-slate-700">{press.currentOperator?.fullName ?? 'Not assigned'}</span></p>
@@ -140,6 +202,7 @@ export function MouldingDashboardPage() {
               <p>Open notes: <span className="font-bold text-slate-700">{shortages.filter((item) => item.pressId === press.id && !['FULFILLED', 'CANCELLED'].includes(item.status)).length}</span>{shortages.some((item) => item.pressId === press.id && item.priority === 'URGENT' && !['FULFILLED', 'CANCELLED'].includes(item.status)) && <span className="ml-2 font-black text-red-700">URGENT</span>}</p>
               <p>Last activity: <span className="font-bold text-slate-700">{formatDateTime(press.lastActivityAt)}</span></p>
             </div>
+            {canOpenProduction && <Link to={`/moulding/production?press=${press.id}`} className="btn-primary mt-5 w-full justify-center"><PencilLine size={17} /> Press Production Entry Details</Link>}
           </article>
         ))}
       </div>

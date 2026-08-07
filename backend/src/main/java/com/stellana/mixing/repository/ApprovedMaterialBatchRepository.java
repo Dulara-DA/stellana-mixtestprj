@@ -13,7 +13,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ApprovedMaterialBatchRepository extends JpaRepository<ApprovedMaterialBatch, Long> {
-    @EntityGraph(attributePaths = {"mixingBatch", "mixingBatch.recipeRevision", "mixingBatch.recipeRevision.recipe", "labApproval"})
+    @EntityGraph(attributePaths = {"mixingBatch", "mixingBatch.recipeRevision", "mixingBatch.recipeRevision.recipe",
+            "mixingBatch.temporaryLabBypassApprovedBy", "labApproval"})
     List<ApprovedMaterialBatch> findAllByOrderByApprovedAtDesc();
 
     boolean existsByMixingBatchId(Long mixingBatchId);
