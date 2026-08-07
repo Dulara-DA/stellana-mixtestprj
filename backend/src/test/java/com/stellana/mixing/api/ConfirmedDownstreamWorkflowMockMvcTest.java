@@ -90,10 +90,12 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
                 .put("cartNumber", "CART-CALC-" + suffix)
                 .put("blankingBatchId", batchId)
                 .put("quantity", 100)
+                .put("averageBlankWeightGrams", 100)
                 .put("destinationPressId", press.path("id").asLong())
                 .put("blankingNote", "Confirmed workflow test cart."));
         long cartId = cart.path("id").asLong();
         assertThat(cart.path("materialWeightKg").decimalValue()).isEqualByComparingTo("10.000");
+        assertThat(cart.path("averageBlankWeightGrams").decimalValue()).isEqualByComparingTo("100.000");
 
         JsonNode held = postJson("/api/blanking/carts/" + cartId + "/hold", admin,
                 objectMapper.createObjectNode().put("reason", "Quality identification check."));

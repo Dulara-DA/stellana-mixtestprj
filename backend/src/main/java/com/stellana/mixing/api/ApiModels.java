@@ -442,7 +442,7 @@ public final class ApiModels {
             String mixingBatchNumber,
             String materialCode,
             @NotNull @DecimalMin("0.001") BigDecimal materialConsumedKg,
-            @NotNull @Min(1) Integer plannedProductionQuantity,
+            @Min(0) Integer plannedProductionQuantity,
             String itemCode,
             String millOperator,
             String preformerOperator,
@@ -513,6 +513,7 @@ public final class ApiModels {
             @NotBlank String cartNumber,
             @NotNull Long blankingBatchId,
             @NotNull @Min(1) Integer quantity,
+            @NotNull @DecimalMin("0.001") @Digits(integer = 9, fraction = 3) BigDecimal averageBlankWeightGrams,
             @NotNull Long destinationPressId,
             String blankingNote,
             Long shortageRequestId

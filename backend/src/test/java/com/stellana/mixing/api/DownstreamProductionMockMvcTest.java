@@ -145,6 +145,7 @@ class DownstreamProductionMockMvcTest {
                 .put("cartNumber", "CART-OVER-INVENTORY")
                 .put("blankingBatchId", batch.get("id").asLong())
                 .put("quantity", excessiveQuantity)
+                .put("averageBlankWeightGrams", 100)
                 .put("destinationPressId", presses.get(0).get("id").asLong())
                 .put("blankingNote", "Must be rejected by backend inventory validation.");
         mockMvc.perform(post("/api/blanking/carts")
@@ -205,12 +206,13 @@ class DownstreamProductionMockMvcTest {
                 .put("batchNumber", "BLK-ADMIN-CONTROL")
                 .put("approvedMaterialBatchId", approved.get("id").asLong())
                 .put("materialConsumedKg", 1)
-                .put("plannedProductionQuantity", 5)
                 .put("notes", "Administrator permission regression test.")
                 .put("startImmediately", false);
         JsonNode batch = postJson("/api/blanking/batches", adminToken, createBatch);
         long batchId = batch.get("id").asLong();
         assertThat(batch.get("status").asText()).isEqualTo("PLANNED");
+        assertThat(batch.get("averageBlankWeightGrams").isNull()).isTrue();
+        assertThat(batch.get("expectedBlankQuantity").isNull()).isTrue();
 
         JsonNode startedBatch = postJson("/api/blanking/batches/" + batchId + "/start",
                 adminToken, objectMapper.createObjectNode());
@@ -228,6 +230,7 @@ class DownstreamProductionMockMvcTest {
                         .put("cartNumber", "CART-ADMIN-CONTROL")
                         .put("blankingBatchId", batchId)
                         .put("quantity", 5)
+                        .put("averageBlankWeightGrams", 100)
                         .put("destinationPressId", press.get("id").asLong())
                         .put("blankingNote", "Administrator prepared cart."));
         long cartId = cart.get("id").asLong();
