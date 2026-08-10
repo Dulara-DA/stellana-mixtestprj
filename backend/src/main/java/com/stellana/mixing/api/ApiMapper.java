@@ -170,7 +170,7 @@ public final class ApiMapper {
                 zero(value.getConsumedQuantityKg()),
                 zero(value.getReturnedQuantityKg()),
                 value.getApprovedAt(),
-                value.getReceivedAt() == null ? value.getApprovedAt() : value.getReceivedAt(),
+                value.getReceivedAt(),
                 user(value.getReceivingOperator()),
                 value.getStockStatus() == null ? CompoundStockStatus.AVAILABLE : value.getStockStatus(),
                 temporaryLabBypass,

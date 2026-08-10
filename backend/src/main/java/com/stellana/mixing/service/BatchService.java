@@ -203,6 +203,10 @@ public class BatchService {
         assertCanAccess(value);
         BatchStatus previous = value.getStatus();
         BatchStatus target = request.status();
+        if (target == BatchStatus.SAMPLE_SENT_TO_LAB) {
+            throw new BusinessRuleException(
+                    "Use the laboratory sample action so a traceable sample record is created.");
+        }
         if (previous == target) {
             return batch(value);
         }

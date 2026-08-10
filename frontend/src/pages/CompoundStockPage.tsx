@@ -201,10 +201,10 @@ export function CompoundStockPage() {
                 <td>{item.plannedQuantityKg} kg<p className="text-xs text-slate-500">{item.receivedQuantityKg} kg received</p></td>
                 <td><span className="font-black text-emerald-700">{item.availableQuantityKg} kg</span><p className="text-xs text-amber-700">{item.reservedQuantityKg} kg reserved</p></td>
                 <td>{item.consumedQuantityKg} kg<p className="text-xs text-slate-500">{item.returnedQuantityKg} kg returned</p></td>
-                <td>{item.receivingOperator?.fullName ?? 'System release'}<p className="text-xs text-slate-500">{formatDateTime(item.receivedAt)}</p></td>
+                <td>{item.stockStatus === 'AWAITING_RECEIPT' ? 'Awaiting receipt' : item.receivingOperator?.fullName ?? 'System release'}<p className="text-xs text-slate-500">{formatDateTime(item.receivedAt)}</p></td>
                 <td><StatusBadge status={item.stockStatus} /></td>
                 {canControl && <td><select className="field min-w-36" value={item.stockStatus === 'PARTIALLY_USED' ? 'AVAILABLE' : item.stockStatus} onChange={(event) => void changeStatus(item, event.target.value as 'AVAILABLE' | 'ON_HOLD' | 'REJECTED')}><option value="AVAILABLE">Available</option><option value="ON_HOLD">On hold</option><option value="REJECTED">Rejected</option>{item.stockStatus === 'DEPLETED' && <option value="DEPLETED" disabled>Depleted</option>}{item.stockStatus === 'AWAITING_RECEIPT' && <option value="AWAITING_RECEIPT" disabled>Awaiting receipt</option>}</select></td>}
-                {canUpdateReceipt && <td><button type="button" className="btn-secondary whitespace-nowrap" onClick={() => openReceiptUpdate(item)}><PackageCheck size={16} /> Update receipt</button></td>}
+                {canUpdateReceipt && <td><button type="button" className="btn-secondary whitespace-nowrap" onClick={() => openReceiptUpdate(item)}><PackageCheck size={16} /> {item.stockStatus === 'AWAITING_RECEIPT' ? 'Receive compound' : 'Update receipt'}</button></td>}
               </tr>
             ))}</tbody>
           </table>

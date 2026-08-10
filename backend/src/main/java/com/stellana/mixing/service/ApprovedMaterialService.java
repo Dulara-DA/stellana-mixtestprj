@@ -8,6 +8,7 @@ import com.stellana.mixing.exception.BusinessRuleException;
 import com.stellana.mixing.exception.NotFoundException;
 import com.stellana.mixing.repository.ApprovedMaterialBatchRepository;
 import com.stellana.mixing.repository.LabSampleRepository;
+import com.stellana.mixing.repository.ProductionBatchRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ import static com.stellana.mixing.api.ApiMapper.approvedMaterialBatch;
 public class ApprovedMaterialService {
     private final ApprovedMaterialBatchRepository approvedMaterialBatchRepository;
     private final LabSampleRepository labSampleRepository;
+    private final ProductionBatchRepository productionBatchRepository;
     private final AuditService auditService;
     private final RealtimeEventService realtimeEventService;
     private final ShiftService shiftService;
@@ -34,6 +36,67 @@ public class ApprovedMaterialService {
         return approvedMaterialBatchRepository.findAllByOrderByApprovedAtDesc().stream()
                 .map(com.stellana.mixing.api.ApiMapper::approvedMaterialBatch)
                 .toList();
+    }
+
+    @Transactional
+    public List<ApprovedMaterialBatchView> synchronizePassedBatches() {
+        UserAccount actor = currentUser();
+        return productionBatchRepository.findAllByLaboratoryStatusOrderByCreatedAtDesc(LabDecision.PASS).stream()
+                .filter(batch -> approvedMaterialBatchRepository
+                        .findByMixingBatchNumberIgnoreCase(batch.getBatchNumber()).isEmpty())
+                .map(batch -> labSampleRepository.findFirstByBatchIdOrderBySentToLabAtDesc(batch.getId())
+                        .filter(sample -> sample.getDecision() == LabDecision.PASS)
+                        .map(sample -> createAwaitingReceiptFromLabPass(batch, sample, actor))
+                        .orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .map(com.stellana.mixing.api.ApiMapper::approvedMaterialBatch)
+                .toList();
+    }
+
+    @Transactional
+    public ApprovedMaterialBatch createAwaitingReceiptFromLabPass(
+            ProductionBatch batch,
+            LabSample labApproval,
+            UserAccount actor
+    ) {
+        if (batch.getLaboratoryStatus() != LabDecision.PASS
+                || labApproval.getDecision() != LabDecision.PASS) {
+            throw new BusinessRuleException("Only a laboratory-passed Mixing batch can await Blanking receipt.");
+        }
+        return approvedMaterialBatchRepository.findByMixingBatchNumberIgnoreCase(batch.getBatchNumber())
+                .orElseGet(() -> {
+                    BigDecimal quantity = batch.getActualOutputQuantityKg() == null
+                            ? batch.getPlannedQuantityKg()
+                            : batch.getActualOutputQuantityKg();
+                    ApprovedMaterialBatch saved = approvedMaterialBatchRepository.save(
+                            ApprovedMaterialBatch.builder()
+                                    .mixingBatch(batch)
+                                    .labApproval(labApproval)
+                                    .mixingBatchNumber(batch.getBatchNumber())
+                                    .materialCode(batch.getRecipeRevision().getRecipe().getRecipeCode())
+                                    .compoundName(batch.getRecipeRevision().getRecipe().getCompoundName())
+                                    .labStatus(LabDecision.PASS)
+                                    .approvedQuantityKg(quantity)
+                                    .availableQuantityKg(BigDecimal.ZERO)
+                                    .plannedQuantityKg(batch.getPlannedQuantityKg())
+                                    .receivedQuantityKg(BigDecimal.ZERO)
+                                    .reservedQuantityKg(BigDecimal.ZERO)
+                                    .consumedQuantityKg(BigDecimal.ZERO)
+                                    .returnedQuantityKg(BigDecimal.ZERO)
+                                    .approvedAt(labApproval.getTestDateTime() == null
+                                            ? shiftService.now() : labApproval.getTestDateTime())
+                                    .stockStatus(CompoundStockStatus.AWAITING_RECEIPT)
+                                    .notes("Laboratory PASS recorded. Awaiting physical receipt confirmation in Blanking.")
+                                    .active(true)
+                                    .build());
+                    auditService.record(actor, "QUEUE_PASSED_COMPOUND_FOR_RECEIPT", "ApprovedMaterialBatch",
+                            saved.getId(), null,
+                            saved.getMixingBatchNumber() + " / awaiting receipt / " + quantity + " kg approved",
+                            batch.getId(), batch.getRecipeRevision().getRecipe().getId());
+                    realtimeEventService.productionChanged("BLANKING", "COMPOUND_AWAITING_RECEIPT",
+                            saved.getId(), saved.getMixingBatchNumber() + " passed laboratory and awaits receipt");
+                    return saved;
+                });
     }
 
     @Transactional
@@ -190,6 +253,9 @@ public class ApprovedMaterialService {
         BigDecimal received = request.receivedQuantityKg().setScale(3, RoundingMode.HALF_UP);
         BigDecimal difference = received.subtract(previousReceived);
         BigDecimal available = previousAvailable.add(difference);
+        boolean firstPhysicalReceipt = value.getStockStatus() == CompoundStockStatus.AWAITING_RECEIPT
+                && previousReceived.signum() == 0
+                && received.signum() > 0;
         BigDecimal allocated = amount(value.getReservedQuantityKg()).add(amount(value.getConsumedQuantityKg()));
         BigDecimal minimumReceived = previousReceived.subtract(previousAvailable)
                 .max(allocated)
@@ -212,8 +278,10 @@ public class ApprovedMaterialService {
         ApprovedMaterialBatch saved = approvedMaterialBatchRepository.save(value);
 
         inventoryLedgerService.record(
-                InventoryTransactionType.INVENTORY_CORRECTION,
-                ProductionSection.BLANKING,
+                firstPhysicalReceipt
+                        ? InventoryTransactionType.COMPOUND_RECEIVED
+                        : InventoryTransactionType.INVENTORY_CORRECTION,
+                firstPhysicalReceipt ? ProductionSection.MIXING : ProductionSection.BLANKING,
                 ProductionSection.BLANKING,
                 "ApprovedMaterialBatch",
                 saved.getId(),
@@ -223,15 +291,18 @@ public class ApprovedMaterialService {
                 "kg",
                 difference,
                 actor,
-                "Manual compound receipt correction: " + previousReceived + " kg → "
-                        + received + " kg / " + reason);
-        auditService.record(actor, "UPDATE_COMPOUND_RECEIPT", "ApprovedMaterialBatch",
+                (firstPhysicalReceipt ? "Physical compound receipt confirmed: " : "Manual compound receipt correction: ")
+                        + previousReceived + " kg → " + received + " kg / " + reason);
+        auditService.record(actor, firstPhysicalReceipt ? "RECEIVE_COMPOUND_STOCK" : "UPDATE_COMPOUND_RECEIPT",
+                "ApprovedMaterialBatch",
                 saved.getId(),
                 "received=" + previousReceived + ", available=" + previousAvailable,
                 "received=" + received + ", available=" + available + " / " + reason,
                 saved.getMixingBatch() == null ? null : saved.getMixingBatch().getId(), null);
-        realtimeEventService.productionChanged("BLANKING", "COMPOUND_RECEIPT_UPDATED",
-                saved.getId(), saved.getMixingBatchNumber() + " receipt updated to " + received + " kg");
+        realtimeEventService.productionChanged("BLANKING",
+                firstPhysicalReceipt ? "COMPOUND_RECEIVED" : "COMPOUND_RECEIPT_UPDATED",
+                saved.getId(), saved.getMixingBatchNumber()
+                        + (firstPhysicalReceipt ? " received: " : " receipt updated to ") + received + " kg");
         return approvedMaterialBatch(saved);
     }
 

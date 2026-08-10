@@ -54,14 +54,17 @@ public class BlankingService {
                     .orElseThrow(() -> new NotFoundException("Approved material batch not found."));
             boolean laboratoryPassed = approved.getLabStatus() == LabDecision.PASS;
             ProductionBatch mixingBatch = approved.getMixingBatch();
+            boolean laboratoryReleaseApproved = laboratoryPassed && (mixingBatch == null
+                    || (mixingBatch.getStatus() == BatchStatus.RELEASED_TO_BLANKING
+                    && mixingBatch.getReleaseStatus() == ReleaseStatus.APPROVED_FOR_BLANKING));
             boolean temporaryLabBypass = mixingBatch != null
                     && Boolean.TRUE.equals(mixingBatch.getTemporaryLabBypass())
                     && mixingBatch.getLaboratoryStatus() == LabDecision.PENDING
                     && mixingBatch.getStatus() == BatchStatus.RELEASED_TO_BLANKING
                     && mixingBatch.getReleaseStatus() == ReleaseStatus.APPROVED_FOR_BLANKING;
-            if (!approved.isActive() || (!laboratoryPassed && !temporaryLabBypass)) {
+            if (!approved.isActive() || (!laboratoryReleaseApproved && !temporaryLabBypass)) {
                 throw new BusinessRuleException(
-                        "Only active laboratory-passed or explicitly authorized temporary-release material can enter Blanking.");
+                        "Compound stock must pass laboratory, be physically received, and be released before Blanking use.");
             }
             CompoundStockStatus stockStatus = approved.getStockStatus() == null
                     ? CompoundStockStatus.AVAILABLE : approved.getStockStatus();

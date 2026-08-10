@@ -1,6 +1,7 @@
 package com.stellana.mixing.repository;
 
 import com.stellana.mixing.domain.BatchStatus;
+import com.stellana.mixing.domain.LabDecision;
 import com.stellana.mixing.domain.ProductionBatch;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -25,6 +26,9 @@ public interface ProductionBatchRepository extends JpaRepository<ProductionBatch
 
     @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer", "scheduledBy"})
     List<ProductionBatch> findAllByAssignedOfficerIdOrderByCreatedAtDesc(Long officerId);
+
+    @EntityGraph(attributePaths = {"recipeRevision", "recipeRevision.recipe", "assignedOfficer", "scheduledBy"})
+    List<ProductionBatch> findAllByLaboratoryStatusOrderByCreatedAtDesc(LabDecision laboratoryStatus);
 
     boolean existsByBatchNumberIgnoreCase(String batchNumber);
 }
