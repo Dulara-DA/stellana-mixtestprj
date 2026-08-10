@@ -271,7 +271,7 @@ export interface ApprovedMaterialBatch {
   consumedQuantityKg: number
   returnedQuantityKg: number
   approvedAt: string
-  receivedAt: string
+  receivedAt?: string
   receivingOperator?: User
   stockStatus: 'AWAITING_RECEIPT' | 'AVAILABLE' | 'PARTIALLY_USED' | 'DEPLETED' | 'ON_HOLD' | 'REJECTED'
   temporaryLabBypass: boolean

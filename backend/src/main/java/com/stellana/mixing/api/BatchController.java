@@ -6,6 +6,7 @@ import com.stellana.mixing.service.QrCodeService;
 import com.stellana.mixing.service.TraceabilityService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -53,8 +54,13 @@ public class BatchController {
     }
 
     @GetMapping(value = "/api/batches/{id}/qr", produces = MediaType.IMAGE_PNG_VALUE)
-    public ResponseEntity<byte[]> qr(@PathVariable Long id) {
-        return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(qrCodeService.generateForBatch(id));
+    public ResponseEntity<byte[]> qr(
+            @PathVariable Long id,
+            @RequestHeader(value = "X-Traceability-Origin", required = false) String traceabilityOrigin) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.IMAGE_PNG)
+                .body(qrCodeService.generateForBatch(id, traceabilityOrigin));
     }
 
     @GetMapping("/api/public/trace/{code}")

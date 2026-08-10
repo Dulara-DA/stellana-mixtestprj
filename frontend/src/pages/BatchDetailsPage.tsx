@@ -65,7 +65,11 @@ export function BatchDetailsPage() {
 
       const token = localStorage.getItem('stellana_token')
       const response = await fetch(`/api/batches/${id}/qr`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: 'no-store',
+        headers: {
+          'X-Traceability-Origin': window.location.origin,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
       })
       if (response.ok) {
         const blob = await response.blob()
@@ -114,14 +118,18 @@ export function BatchDetailsPage() {
       : `Confirm status change to ${humanize(target)}?`
     if (!window.confirm(confirmation)) return
     try {
-      await api(`/api/batches/${batch.id}/transition`, {
-        method: 'POST',
-        body: JSON.stringify({
-          status: target,
-          reason,
-          temporaryLabBypass: temporaryReleaseSelected,
-        }),
-      })
+      if (target === 'SAMPLE_SENT_TO_LAB') {
+        await api(`/api/lab/batches/${batch.id}/send-sample`, { method: 'POST' })
+      } else {
+        await api(`/api/batches/${batch.id}/transition`, {
+          method: 'POST',
+          body: JSON.stringify({
+            status: target,
+            reason,
+            temporaryLabBypass: temporaryReleaseSelected,
+          }),
+        })
+      }
       setTarget('')
       setReason('')
       await load()

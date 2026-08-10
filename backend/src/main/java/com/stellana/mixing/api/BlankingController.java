@@ -33,6 +33,12 @@ public class BlankingController {
         return approvedMaterialService.list();
     }
 
+    @PostMapping("/compound-stock/sync-passed")
+    @PreAuthorize("hasAnyRole('MANAGER','SYSTEM_ADMIN')")
+    public List<ApprovedMaterialBatchView> synchronizePassedCompoundStock() {
+        return approvedMaterialService.synchronizePassedBatches();
+    }
+
     @PatchMapping("/compound-stock/{id}/status")
     @PreAuthorize("hasAnyRole('BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
     public ApprovedMaterialBatchView changeCompoundStockStatus(

@@ -68,6 +68,23 @@ class BatchServiceTest {
     }
 
     @Test
+    void requiresTheLaboratoryActionWhenSendingASample() {
+        ProductionBatch batch = ProductionBatch.builder()
+                .batchNumber("TEST-LAB")
+                .status(BatchStatus.STAGE_2_COMPLETED)
+                .assignedOfficer(manager)
+                .build();
+        batch.setId(11L);
+        when(currentUserService.requireCurrentUser()).thenReturn(manager);
+        when(batchRepository.findById(11L)).thenReturn(Optional.of(batch));
+
+        assertThatThrownBy(() -> batchService.transition(
+                11L, new BatchTransitionRequest(BatchStatus.SAMPLE_SENT_TO_LAB, null, null)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("laboratory sample action");
+    }
+
+    @Test
     void doesNotApplyUnconfirmedFillFactorAndRejectsOnlyOverCapacityLoad() {
         when(currentUserService.requireCurrentUser()).thenReturn(manager);
         when(batchRepository.existsByBatchNumberIgnoreCase("TEST-OVER")).thenReturn(false);

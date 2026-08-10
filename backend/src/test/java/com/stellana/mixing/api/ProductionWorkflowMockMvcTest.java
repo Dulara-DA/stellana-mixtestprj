@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.stellana.mixing.repository.ApprovedMaterialBatchRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -24,6 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ProductionWorkflowMockMvcTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
+    @Autowired ApprovedMaterialBatchRepository approvedMaterialBatchRepository;
 
     @Test
     void demonstratesTheMainPassAndMailboxWorkflow() throws Exception {
@@ -110,6 +112,28 @@ class ProductionWorkflowMockMvcTest {
                 .put("reprocessingDecision", false);
         labResult.set("additionalResults", objectMapper.createArrayNode());
         postJson("/api/lab/samples/" + sample.get("id").asLong() + "/results", managerToken, labResult);
+
+        JsonNode compoundStock = getJson("/api/blanking/compound-stock", managerToken);
+        JsonNode awaitingReceipt = null;
+        for (JsonNode candidate : compoundStock) {
+            if ("TEST-FLOW-001".equals(candidate.path("mixingBatchNumber").asText())) {
+                awaitingReceipt = candidate;
+                break;
+            }
+        }
+        assertThat(awaitingReceipt).as("passed batch queued in Blanking Compound Stock").isNotNull();
+        assertThat(awaitingReceipt.path("labStatus").asText()).isEqualTo("PASS");
+        assertThat(awaitingReceipt.path("stockStatus").asText()).isEqualTo("AWAITING_RECEIPT");
+        assertThat(awaitingReceipt.path("receivedQuantityKg").decimalValue()).isEqualByComparingTo("0");
+        assertThat(awaitingReceipt.path("availableQuantityKg").decimalValue()).isEqualByComparingTo("0");
+
+        approvedMaterialBatchRepository.deleteById(awaitingReceipt.path("id").asLong());
+        approvedMaterialBatchRepository.flush();
+        JsonNode synchronizedStock = postJson(
+                "/api/blanking/compound-stock/sync-passed", managerToken, objectMapper.createObjectNode());
+        assertThat(synchronizedStock).anyMatch(candidate ->
+                "TEST-FLOW-001".equals(candidate.path("mixingBatchNumber").asText())
+                        && "AWAITING_RECEIPT".equals(candidate.path("stockStatus").asText()));
 
         postJson("/api/batches/" + batchId + "/transition", managerToken,
                 objectMapper.createObjectNode().put("status", "RELEASED_TO_BLANKING").put("reason", "Test release"));

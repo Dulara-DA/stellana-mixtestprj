@@ -28,6 +28,7 @@ public class LabService {
     private final AuditService auditService;
     private final NotificationService notificationService;
     private final RealtimeEventService realtimeEventService;
+    private final ApprovedMaterialService approvedMaterialService;
 
     @Transactional(readOnly = true)
     public List<LabSampleView> list() {
@@ -40,7 +41,14 @@ public class LabService {
         UserAccount actor = currentUserService.requireCurrentUser();
         ProductionBatch batch = batchService.requireBatch(batchId);
         batchService.assertCanAccess(batch);
-        if (!List.of(BatchStatus.STAGE_2_COMPLETED, BatchStatus.RETEST_REQUIRED).contains(batch.getStatus())) {
+        if (batch.getStatus() == BatchStatus.SAMPLE_SENT_TO_LAB) {
+            LabSample existing = sampleRepository.findFirstByBatchIdOrderBySentToLabAtDesc(batchId).orElse(null);
+            if (existing != null) {
+                batchService.transitionInternal(batch, BatchStatus.WAITING_FOR_LAB, actor,
+                        "Existing sample confirmed in lab queue");
+                return labSample(existing);
+            }
+        } else if (!List.of(BatchStatus.STAGE_2_COMPLETED, BatchStatus.RETEST_REQUIRED).contains(batch.getStatus())) {
             throw new BusinessRuleException("A sample can be sent only after Stage 2 or when a retest is required.");
         }
         LabSample sample = LabSample.builder()
@@ -97,6 +105,9 @@ public class LabService {
             default -> throw new BusinessRuleException("Unsupported laboratory decision.");
         };
         batch = batchService.transitionInternal(batch, target, actor, "Lab decision " + request.decision());
+        if (request.decision() == LabDecision.PASS) {
+            approvedMaterialService.createAwaitingReceiptFromLabPass(batch, saved, actor);
+        }
         if (request.decision() == LabDecision.FAIL && Boolean.TRUE.equals(request.reprocessingDecision())) {
             batchService.transitionInternal(batch, BatchStatus.REPROCESSING, actor, "Reprocessing approved with lab result");
         }
