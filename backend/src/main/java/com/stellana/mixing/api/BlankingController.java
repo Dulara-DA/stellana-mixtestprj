@@ -69,6 +69,14 @@ public class BlankingController {
         return blankingService.createBatch(request);
     }
 
+    @PostMapping("/production-records")
+    @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','SYSTEM_ADMIN')")
+    public BlankingProductionRecordView createProductionRecord(
+            @Valid @RequestBody CreateBlankingProductionRecordRequest request
+    ) {
+        return blankingService.createProductionRecord(request);
+    }
+
     @PostMapping("/batches/{id}/start")
     @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','SYSTEM_ADMIN')")
     public BlankingBatchView startBatch(@PathVariable Long id) {

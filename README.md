@@ -180,26 +180,43 @@ and role access.
 ## Blanking and Moulding demonstration workflow
 
 1. Sign in as Blanking Operator, Supervisor, or System Administrator.
-2. Open **Blanking Production** and manually record the physical Mixing batch
-   number and compound/material code. This is a temporary prototype workflow;
-   it does not represent a laboratory approval.
-3. Record the item, mill and
-   preformer operators, issued kilograms and average blank grams. The screen
-   previews expected pieces and warns if the result is fractional.
-4. Record IN/start, then complete the batch with good/rejected pieces, rejected
-   material kilograms and the measured remaining compound. The server
-   recalculates every balance and records shift, production date, employee ID
-   and IN/OUT times.
-5. Open **Carts & Dispatch**, reserve good blanks on one or more uniquely
-   numbered carts and choose a destination Press. A cart can be held with a
-   reason, released, then dispatched; duplicate/invalid transitions are rejected.
-6. Sign in as Moulding Operator. Receive the dispatched cart at the intended
-   press. Receipt is allowed once and atomically increases press inventory.
+2. Open **Blanking Production Records**. Enter the physical Batch No., compound
+   type, Cart No., blank quantity, average blank weight, mill operator and
+   performer operator, then select the single blue **Record batch & cart** button.
+   The batch and its first cart are saved together in one database transaction;
+   if either record is invalid, neither record is retained. The
+   temporary manual workflow intentionally leaves compound-issued kilograms and
+   item code unrecorded rather than inventing values.
+3. The server records the official production date, shift, creation time and
+   responsible operator automatically. For this one-click physical-production
+   entry, it records the batch IN/OUT times, marks the entered blanks as good,
+   completes the batch and prepares the first cart immediately.
+4. To split a completed batch into more carts, use **Prepare cart** in the
+   batch row. The same form changes to additional-cart mode and protects the
+   original batch details while recording the new Cart No. and quantity.
+5. No destination Press is selected in Blanking; the Moulding
+   operator allocates the physical cart to the actual Press during receipt.
+   The screen and server calculate `blank quantity × average blank weight = total
+   blank weight`. Each cart stores its official production date, shift and
+   preparation time. A cart can be held with a reason, released, then dispatched;
+   duplicate/invalid transitions are rejected. The combined table preserves the
+   one-batch-to-many-carts relationship and exposes the full operational details.
+6. Sign in as Moulding Operator or System Administrator. Select the dispatched
+   **Cart No.** and the **Press No.** where it is physically received. The
+   receiving account must have an EPF/employee number. The selected press must
+   have `0` blanks available; another
+   cart is blocked until its previous blanks are consumed or returned and the
+   press balance is reconciled to zero. Receipt is allowed once, records the
+   actual press allocation, and atomically increases that press inventory.
 7. Start a Moulding production record and enter good tyres, rejected tyres,
    rejected tyre weight per item, rejected blanks, downtime, and notes.
-8. If unused blanks remain, open **Blank Returns**, reserve them for return,
-   send them to Blanking, then sign in as a Blanking user to confirm physical
-   pieces and kilograms. Blanking inventory increases only at confirmation.
+8. If unused blanks remain, open **Blank Returns**, reserve them against the
+   exact Cart and Press, then send them to Blanking. The Moulding sender's name
+   and EPF are recorded. A Blanking user can physically receive the same return
+   from **Blank Returns** or the **Returned blanks from Moulding** section in
+   **Compound Stock**; the receiver's name and EPF are recorded. One confirmation
+   updates the return, Cart history, inventory ledger and originating Blanking
+   batch stock. Blanking inventory increases only at confirmation.
 9. If more blanks are needed, create a request in **Request Blanks**. Blanking
    can acknowledge, prepare, link, and dispatch a cart in the same conversation.
 10. Sign in as Manager/Admin and open **Production Report** to filter and review
@@ -251,6 +268,10 @@ Blank return:
 
 A differing receipt becomes `QUANTITY_DISPUTED`. Preparing a return reserves
 the pieces at the Press immediately. Only confirmation adds them to Blanking.
+Both sending and receiving accounts require EPF/employee numbers. Their names,
+EPF snapshots, Cart, Press, quantities, weights and server timestamps remain in
+the return and audit history. Returned blanks are tracked separately from raw
+compound kilograms.
 
 ## Shift and timestamp rules
 
@@ -323,6 +344,7 @@ Swagger UI contains the complete request/response schemas. Main route groups:
 | `/api/blanking/approved-materials` | Passed/released Mixing material available to Blanking |
 | `/api/blanking/compound-stock` | Detailed stock, controlled status, and audited Administrator receipt corrections |
 | `/api/blanking/batches` | Create, start, complete and audited-supervisor-correct Blanking batches |
+| `/api/blanking/production-records` | Atomically record a completed physical Blanking batch and its first prepared cart with one request |
 | `/api/blanking/carts` | Prepare, hold, release and dispatch traceable carts |
 | `/api/blanking/returns` | Confirm and review unused-blank returns |
 | `/api/blanking/inventory-transactions` | Append-only movement ledger |
@@ -417,8 +439,12 @@ placeholder, not a confirmed factory production rule.
   and Compound Stock. Remove this temporary path when the laboratory workflow
   becomes operational.
 - Important production records use statuses rather than permanent deletion.
-- A cart receipt is unique per cart. Wrong-press receipt requires a Moulding
-  Supervisor/Manager/Admin override and reason.
+- A cart receipt is unique per cart and requires the receiving account's
+  EPF/employee number. Moulding Operators, Supervisors, Managers and System
+  Administrators may allocate a dispatched cart to the actual receiving press.
+  A receiving press must have an existing available-blank balance of
+  exactly zero; this rule cannot be bypassed by role. The audit record preserves
+  the Cart No., actual press, EPF, date, shift and receipt time.
 - The confirmed weight formula converts issued kilograms and average blank
   grams into expected pieces. It does not assume a process-loss allowance.
 - One consumed blank is treated as one good tyre, rejected tyre, or rejected

@@ -103,8 +103,13 @@ public class ShortageService {
         if (request.linkedCartId() != null) {
             BlankingCart cart = blankingCartRepository.findById(request.linkedCartId())
                     .orElseThrow(() -> new NotFoundException("Linked cart not found."));
-            if (!cart.getDestinationPress().getId().equals(value.getPress().getId())) {
+            if (cart.getDestinationPress() != null
+                    && !cart.getDestinationPress().getId().equals(value.getPress().getId())) {
                 throw new BusinessRuleException("The linked cart must be destined for the requesting press.");
+            }
+            if (cart.getDestinationPress() == null) {
+                cart.setDestinationPress(value.getPress());
+                blankingCartRepository.save(cart);
             }
             value.setLinkedCart(cart);
         }

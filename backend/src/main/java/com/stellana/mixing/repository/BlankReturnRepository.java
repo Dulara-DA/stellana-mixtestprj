@@ -2,6 +2,7 @@ package com.stellana.mixing.repository;
 
 import com.stellana.mixing.domain.BlankReturn;
 import com.stellana.mixing.domain.BlankReturnStatus;
+import com.stellana.mixing.domain.BlankReturnType;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,14 +17,16 @@ import java.util.Optional;
 public interface BlankReturnRepository extends JpaRepository<BlankReturn, Long> {
     boolean existsByReturnNumberIgnoreCase(String returnNumber);
 
+    boolean existsByProductionRecordIdAndReturnType(Long productionRecordId, BlankReturnType returnType);
+
     @EntityGraph(attributePaths = {
-            "press", "cart", "cart.createdBy", "cart.destinationPress", "blankingBatch",
+            "press", "cart", "cart.createdBy", "cart.destinationPress", "blankingBatch", "productionRecord",
             "sendingOperator", "receivingOperator"
     })
     List<BlankReturn> findAllByOrderByCreatedAtDesc();
 
     @EntityGraph(attributePaths = {
-            "press", "cart", "cart.createdBy", "cart.destinationPress", "blankingBatch",
+            "press", "cart", "cart.createdBy", "cart.destinationPress", "blankingBatch", "productionRecord",
             "sendingOperator", "receivingOperator"
     })
     List<BlankReturn> findAllByStatusInOrderByCreatedAtDesc(Collection<BlankReturnStatus> statuses);

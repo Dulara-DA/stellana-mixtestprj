@@ -5,9 +5,8 @@ import { Shell } from './components/Shell'
 import { AuditPage } from './pages/AuditPage'
 import { BatchDetailsPage } from './pages/BatchDetailsPage'
 import { BatchesPage } from './pages/BatchesPage'
-import { BlankingBatchesPage } from './pages/BlankingBatchesPage'
-import { BlankingCartsPage } from './pages/BlankingCartsPage'
 import { BlankingDashboardPage } from './pages/BlankingDashboardPage'
+import { BlankingProductionPage } from './pages/BlankingProductionPage'
 import { BlankReturnsPage } from './pages/BlankReturnsPage'
 import { CompoundStockPage } from './pages/CompoundStockPage'
 import { CreateBatchPage } from './pages/CreateBatchPage'
@@ -76,8 +75,8 @@ export default function App() {
 
         <Route path="/blanking" element={<RequireRoles roles={blanking}><BlankingDashboardPage /></RequireRoles>} />
         <Route path="/blanking/stock" element={<RequireRoles roles={blanking}><CompoundStockPage /></RequireRoles>} />
-        <Route path="/blanking/batches" element={<RequireRoles roles={blanking}><BlankingBatchesPage /></RequireRoles>} />
-        <Route path="/blanking/carts" element={<RequireRoles roles={blanking}><BlankingCartsPage /></RequireRoles>} />
+        <Route path="/blanking/batches" element={<RequireRoles roles={blanking}><BlankingProductionPage /></RequireRoles>} />
+        <Route path="/blanking/carts" element={<RequireRoles roles={blanking}><Navigate to="/blanking/batches" replace /></RequireRoles>} />
         <Route path="/blanking/returns" element={<RequireRoles roles={downstream}><BlankReturnsPage /></RequireRoles>} />
         <Route path="/blanking/moulding" element={<RequireRoles roles={blanking}><MouldingDashboardPage /></RequireRoles>} />
         <Route path="/moulding" element={<RequireRoles roles={moulding}><MouldingDashboardPage /></RequireRoles>} />

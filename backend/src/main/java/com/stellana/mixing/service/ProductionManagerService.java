@@ -77,7 +77,8 @@ public class ProductionManagerService {
 
         List<BlankingCart> carts = blankingCartRepository.findAllByOrderByCreatedAtDesc().stream()
                 .filter(value -> batchIds.contains(value.getBlankingBatch().getId()))
-                .filter(value -> pressId == null || value.getDestinationPress().getId().equals(pressId))
+                .filter(value -> pressId == null || (value.getDestinationPress() != null
+                        && value.getDestinationPress().getId().equals(pressId)))
                 .filter(value -> matches(value.getCartNumber(), cartNumber))
                 .toList();
         List<MouldingProductionRecord> records = recordRepository
@@ -327,7 +328,8 @@ public class ProductionManagerService {
                 .filter(value -> (pressId == null && !StringUtils.hasText(cartNumber))
                         || allCarts.stream().anyMatch(cart ->
                         cart.getBlankingBatch().getId().equals(value.getId())
-                                && (pressId == null || cart.getDestinationPress().getId().equals(pressId))
+                                && (pressId == null || (cart.getDestinationPress() != null
+                                && cart.getDestinationPress().getId().equals(pressId)))
                                 && matches(cart.getCartNumber(), cartNumber)))
                 .map(com.stellana.mixing.api.ApiMapper::blankingBatch)
                 .toList();

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.stellana.mixing.domain.CompoundStockStatus;
 import com.stellana.mixing.repository.ApprovedMaterialBatchRepository;
+import com.stellana.mixing.repository.BlankingBatchRepository;
+import com.stellana.mixing.repository.BlankingCartRepository;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,8 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @Autowired ApprovedMaterialBatchRepository stockRepository;
+    @Autowired BlankingBatchRepository blankingBatchRepository;
+    @Autowired BlankingCartRepository blankingCartRepository;
 
     @Test
     @Order(1)
@@ -96,6 +100,8 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
         long cartId = cart.path("id").asLong();
         assertThat(cart.path("materialWeightKg").decimalValue()).isEqualByComparingTo("10.000");
         assertThat(cart.path("averageBlankWeightGrams").decimalValue()).isEqualByComparingTo("100.000");
+        assertThat(cart.path("productionDate").asText()).isNotBlank();
+        assertThat(cart.path("shift").asText()).isIn("SHIFT_A", "SHIFT_B", "SHIFT_C");
 
         JsonNode held = postJson("/api/blanking/carts/" + cartId + "/hold", admin,
                 objectMapper.createObjectNode().put("reason", "Quality identification check."));
@@ -124,15 +130,22 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
                 .put("cartId", cartId));
         JsonNode production = postJson("/api/moulding/records/" + record.path("id").asLong() + "/complete",
                 admin, objectMapper.createObjectNode()
-                        .put("goodTyreQuantity", 75)
+                        .put("goodTyreQuantity", 73)
                         .put("rejectedTyreQuantity", 5)
                         .put("rejectedTyreWeightPerItemGrams", 100)
-                        .put("rejectedBlankQuantity", 0)
+                        .put("rejectedBlankQuantity", 2)
                         .put("downtimeMinutes", 0)
                         .put("operatorNote", "Partial production with unused blanks."));
         assertThat(production.path("totalRejectedTyreWeightGrams").decimalValue())
                 .isEqualByComparingTo("500.000");
         assertThat(production.path("remainingBlankQuantity").asInt()).isEqualTo(20);
+
+        var legacyCart = blankingCartRepository.findById(cartId).orElseThrow();
+        legacyCart.setAverageBlankWeightGrams(null);
+        blankingCartRepository.save(legacyCart);
+        var legacyBatch = blankingBatchRepository.findById(batchId).orElseThrow();
+        legacyBatch.setAverageBlankWeightGrams(null);
+        blankingBatchRepository.save(legacyBatch);
 
         JsonNode blankReturn = postJson("/api/moulding/returns", admin, objectMapper.createObjectNode()
                 .put("cartId", cartId)
@@ -143,14 +156,37 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
                 .put("mouldingNote", "Unused blanks physically returned."));
         long returnId = blankReturn.path("id").asLong();
         assertThat(blankReturn.path("status").asText()).isEqualTo("RETURN_PREPARED");
-        postJson("/api/moulding/returns/" + returnId + "/send", admin, objectMapper.createObjectNode());
+        assertThat(blankReturn.path("averageBlankWeightGrams").decimalValue())
+                .as("legacy return per-item weight is derived from 2 kg / 20 pieces")
+                .isEqualByComparingTo("100.000");
+        assertThat(blankReturn.path("sendingOperator").path("fullName").asText())
+                .isEqualTo("System Administrator");
+        assertThat(blankReturn.path("sendingOperatorEmployeeId").asText()).isEqualTo("SYS-001");
+        JsonNode sentReturn = postJson("/api/moulding/returns/" + returnId + "/send",
+                admin, objectMapper.createObjectNode());
+        assertThat(sentReturn.path("cartNumber").asText()).isEqualTo(cart.path("cartNumber").asText());
+        assertThat(sentReturn.path("sendingOperatorEmployeeId").asText()).isEqualTo("SYS-001");
         String blankingOperator = login("blanking.operator@stellana.local", "Blanking123!");
+        postExpectConflict("/api/blanking/returns/" + returnId + "/confirm", blankingOperator,
+                objectMapper.createObjectNode()
+                        .put("receivedQuantity", 19)
+                        .put("receivedWeightKg", 1.9)
+                        .put("varianceNote", "Credentials must be verified before recording this variance.")
+                        .put("username", "blanking.operator@stellana.local")
+                        .put("employeeId", "BLK-001")
+                        .put("password", "WrongPassword!"));
         JsonNode disputed = postJson("/api/blanking/returns/" + returnId + "/confirm", blankingOperator,
                 objectMapper.createObjectNode()
                         .put("receivedQuantity", 19)
                         .put("receivedWeightKg", 1.9)
-                        .put("varianceNote", "One piece was not present at physical receipt."));
+                        .put("varianceNote", "One piece was not present at physical receipt.")
+                        .put("username", "blanking.operator@stellana.local")
+                        .put("employeeId", "BLK-001")
+                        .put("password", "Blanking123!"));
         assertThat(disputed.path("status").asText()).isEqualTo("QUANTITY_DISPUTED");
+        assertThat(disputed.path("receivingOperator").path("fullName").asText())
+                .isEqualTo("Ishara Fernando");
+        assertThat(disputed.path("receivingOperatorEmployeeId").asText()).isEqualTo("BLK-001");
         JsonNode afterDispute = getJson("/api/blanking/batches", blankingOperator);
         JsonNode disputedBatch = null;
         for (JsonNode candidate : afterDispute) {
@@ -166,14 +202,132 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
                 objectMapper.createObjectNode()
                         .put("receivedQuantity", 19)
                         .put("receivedWeightKg", 1.9)
-                        .put("varianceNote", "Administrator accepted the documented physical variance."));
+                        .put("varianceNote", "Administrator accepted the documented physical variance.")
+                        .put("username", "admin@stellana.local")
+                        .put("employeeId", "SYS-001")
+                        .put("password", "Admin123!"));
         assertThat(confirmed.path("status").asText()).isEqualTo("CLOSED");
+        assertThat(confirmed.path("cartNumber").asText()).isEqualTo(cart.path("cartNumber").asText());
+        assertThat(confirmed.path("receivingOperatorEmployeeId").asText()).isEqualTo("BLK-001");
         assertThat(confirmed.path("quantityVariance").asInt()).isEqualTo(-1);
         assertThat(confirmed.path("weightVarianceKg").decimalValue()).isEqualByComparingTo("-0.100");
         postExpectConflict("/api/blanking/returns/" + returnId + "/confirm", admin,
                 objectMapper.createObjectNode()
                         .put("receivedQuantity", 20)
-                        .put("receivedWeightKg", 2));
+                        .put("receivedWeightKg", 2)
+                        .put("username", "admin@stellana.local")
+                        .put("employeeId", "SYS-001")
+                        .put("password", "Admin123!"));
+
+        JsonNode afterConfirmationBatches = getJson("/api/blanking/batches", admin);
+        JsonNode confirmedBatch = null;
+        for (JsonNode candidate : afterConfirmationBatches) {
+            if (candidate.path("id").asLong() == batchId) {
+                confirmedBatch = candidate;
+                break;
+            }
+        }
+        assertThat(confirmedBatch).isNotNull();
+        assertThat(confirmedBatch.path("availableGoodBlankQuantity").asInt()).isEqualTo(419);
+
+        JsonNode rejectedReturn = postJson("/api/moulding/returns", admin,
+                objectMapper.createObjectNode()
+                        .put("cartId", cartId)
+                        .put("pressId", press.path("id").asLong())
+                        .put("returnType", "REJECTED_BLANKS")
+                        .put("productionRecordId", production.path("id").asLong())
+                        .put("quantity", 2)
+                        .put("measuredReturnWeightKg", 0.2)
+                        .put("returnReason", "Rejected blanks from press production.")
+                        .put("mouldingNote", "Rejected material must not restore usable stock."));
+        assertThat(rejectedReturn.path("returnType").asText()).isEqualTo("REJECTED_BLANKS");
+        assertThat(rejectedReturn.path("productionRecordId").asLong()).isEqualTo(production.path("id").asLong());
+        long rejectedReturnId = rejectedReturn.path("id").asLong();
+        postJson("/api/moulding/returns/" + rejectedReturnId + "/send", admin,
+                objectMapper.createObjectNode());
+        JsonNode rejectedConfirmed = postJson("/api/blanking/returns/" + rejectedReturnId + "/confirm",
+                admin, objectMapper.createObjectNode()
+                        .put("receivedQuantity", 2)
+                        .put("receivedWeightKg", 0.2)
+                        .put("username", "admin@stellana.local")
+                        .put("employeeId", "SYS-001")
+                        .put("password", "Admin123!"));
+        assertThat(rejectedConfirmed.path("status").asText()).isEqualTo("CLOSED");
+        JsonNode batchAfterRejectedReceipt = null;
+        for (JsonNode candidate : getJson("/api/blanking/batches", admin)) {
+            if (candidate.path("id").asLong() == batchId) {
+                batchAfterRejectedReceipt = candidate;
+                break;
+            }
+        }
+        assertThat(batchAfterRejectedReceipt).isNotNull();
+        assertThat(batchAfterRejectedReceipt.path("availableGoodBlankQuantity").asInt())
+                .as("rejected material must not become usable blank stock")
+                .isEqualTo(419);
+        postExpectConflict("/api/moulding/returns", admin, objectMapper.createObjectNode()
+                .put("cartId", cartId)
+                .put("pressId", press.path("id").asLong())
+                .put("returnType", "REJECTED_BLANKS")
+                .put("productionRecordId", production.path("id").asLong())
+                .put("quantity", 2)
+                .put("measuredReturnWeightKg", 0.2)
+                .put("returnReason", "Duplicate rejected return must be blocked."));
+
+        JsonNode rejectedTyreReturn = postJson("/api/moulding/returns", admin,
+                objectMapper.createObjectNode()
+                        .put("cartId", cartId)
+                        .put("pressId", press.path("id").asLong())
+                        .put("returnType", "REJECTED_TYRES")
+                        .put("productionRecordId", production.path("id").asLong())
+                        .put("quantity", 5)
+                        .put("measuredReturnWeightKg", 0.5)
+                        .put("returnReason", "Rejected tyres from press production.")
+                        .put("mouldingNote", "Five rejected tyres recorded at 100 grams each."));
+        assertThat(rejectedTyreReturn.path("returnType").asText()).isEqualTo("REJECTED_TYRES");
+        assertThat(rejectedTyreReturn.path("preparedQuantity").asInt()).isEqualTo(5);
+        assertThat(rejectedTyreReturn.path("measuredReturnWeightKg").decimalValue())
+                .isEqualByComparingTo("0.500");
+        long rejectedTyreReturnId = rejectedTyreReturn.path("id").asLong();
+        postJson("/api/moulding/returns/" + rejectedTyreReturnId + "/send", admin,
+                objectMapper.createObjectNode());
+        JsonNode rejectedTyreConfirmed = postJson(
+                "/api/blanking/returns/" + rejectedTyreReturnId + "/confirm",
+                admin, objectMapper.createObjectNode()
+                        .put("receivedQuantity", 5)
+                        .put("receivedWeightKg", 0.5)
+                        .put("username", "admin@stellana.local")
+                        .put("employeeId", "SYS-001")
+                        .put("password", "Admin123!"));
+        assertThat(rejectedTyreConfirmed.path("status").asText()).isEqualTo("CLOSED");
+        JsonNode batchAfterRejectedTyreReceipt = null;
+        for (JsonNode candidate : getJson("/api/blanking/batches", admin)) {
+            if (candidate.path("id").asLong() == batchId) {
+                batchAfterRejectedTyreReceipt = candidate;
+                break;
+            }
+        }
+        assertThat(batchAfterRejectedTyreReceipt).isNotNull();
+        assertThat(batchAfterRejectedTyreReceipt.path("availableGoodBlankQuantity").asInt())
+                .as("rejected tyres must not become usable blank stock")
+                .isEqualTo(419);
+        postExpectConflict("/api/moulding/returns", admin, objectMapper.createObjectNode()
+                .put("cartId", cartId)
+                .put("pressId", press.path("id").asLong())
+                .put("returnType", "REJECTED_TYRES")
+                .put("productionRecordId", production.path("id").asLong())
+                .put("quantity", 5)
+                .put("measuredReturnWeightKg", 0.5)
+                .put("returnReason", "Duplicate rejected tyre return must be blocked."));
+        JsonNode returnedCart = null;
+        for (JsonNode candidate : getJson("/api/blanking/carts", admin)) {
+            if (candidate.path("id").asLong() == cartId) {
+                returnedCart = candidate;
+                break;
+            }
+        }
+        assertThat(returnedCart).isNotNull();
+        assertThat(returnedCart.path("returnedQuantity").asInt()).isEqualTo(19);
+        assertThat(returnedCart.path("status").asText()).isEqualTo("RETURNED_TO_BLANKING");
 
         JsonNode ledger = getJson("/api/blanking/inventory-transactions", admin);
         assertThat(ledger.toString()).contains("COMPOUND_RESERVED", "BLANKS_PRODUCED",

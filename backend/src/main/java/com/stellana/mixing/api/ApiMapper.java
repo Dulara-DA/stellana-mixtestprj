@@ -237,6 +237,9 @@ public final class ApiMapper {
                 value.getReturnedQuantity(),
                 value.getAverageBlankWeightGrams(),
                 value.getMaterialWeightKg(),
+                value.getProductionDate() == null
+                        ? value.getBlankingBatch().getProductionDate() : value.getProductionDate(),
+                value.getShift() == null ? value.getBlankingBatch().getShift() : value.getShift(),
                 value.getCreatedAt(),
                 user(value.getCreatedBy()),
                 value.getDestinationPress() == null ? null : value.getDestinationPress().getId(),
@@ -339,6 +342,8 @@ public final class ApiMapper {
                 value.getCart().getCartNumber(),
                 value.getBlankingBatch().getId(),
                 value.getBlankingBatch().getBatchNumber(),
+                value.getReturnType() == null ? BlankReturnType.UNUSED_GOOD_BLANKS : value.getReturnType(),
+                value.getProductionRecord() == null ? null : value.getProductionRecord().getId(),
                 value.getCompoundCode(),
                 value.getCompoundBatchNumber(),
                 value.getItemCode(),
@@ -347,10 +352,14 @@ public final class ApiMapper {
                 value.getAverageBlankWeightGrams(),
                 value.getReturnReason(),
                 user(value.getSendingOperator()),
+                value.getSendingOperatorEmployeeId() == null
+                        ? value.getSendingOperator().getEmployeeId() : value.getSendingOperatorEmployeeId(),
                 value.getSendingDateTime(),
                 value.getShift(),
                 value.getMouldingNote(),
                 user(value.getReceivingOperator()),
+                value.getReceivingOperatorEmployeeId() == null && value.getReceivingOperator() != null
+                        ? value.getReceivingOperator().getEmployeeId() : value.getReceivingOperatorEmployeeId(),
                 value.getReceivingDateTime(),
                 value.getReceivedQuantity(),
                 value.getReceivedWeightKg(),

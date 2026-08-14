@@ -1,6 +1,6 @@
 import {
   Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Boxes, CircleDot, ClipboardList, Factory,
-  FlaskConical, Gauge, Grid3X3, LogOut, Mail, PackageSearch, ScrollText, Truck, Users, Wrench,
+  FlaskConical, Gauge, Grid3X3, LogOut, Mail, PackageSearch, ScrollText, Users, Wrench,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
@@ -24,8 +24,7 @@ const mixingNav: NavItem[] = [
 const blankingNav: NavItem[] = [
   { to: '/blanking', label: 'Blanking Dashboard', icon: Gauge },
   { to: '/blanking/stock', label: 'Compound Stock', icon: PackageSearch },
-  { to: '/blanking/batches', label: 'Blanking Batches', icon: Factory },
-  { to: '/blanking/carts', label: 'Carts & Dispatch', icon: Truck },
+  { to: '/blanking/batches', label: 'Blanking Production Records', icon: Factory },
   { to: '/blanking/returns', label: 'Return Confirmation', icon: ArrowLeftRight },
   { to: '/blanking/moulding', label: 'Moulding Status', icon: CircleDot },
   { to: '/shortages', label: 'Shortage Requests', icon: AlertTriangle },
@@ -34,7 +33,7 @@ const mouldingNav: NavItem[] = [
   { to: '/moulding', label: 'Moulding Dashboard', icon: Gauge },
   { to: '/moulding/receipts', label: 'Receiving History', icon: PackageSearch },
   { to: '/moulding/production', label: 'Production Entry', icon: CircleDot },
-  { to: '/moulding/returns', label: 'Blank Return', icon: ArrowLeftRight },
+  { to: '/moulding/returns', label: 'Rejects / Returns', icon: ArrowLeftRight },
   { to: '/shortages', label: 'Request Blanks', icon: AlertTriangle },
 ]
 

@@ -486,7 +486,7 @@ public final class ApiModels {
             Long approvedMaterialBatchId,
             String mixingBatchNumber,
             String materialCode,
-            @NotNull @DecimalMin("0.001") BigDecimal materialConsumedKg,
+            @DecimalMin("0.000") BigDecimal materialConsumedKg,
             @Min(0) Integer plannedProductionQuantity,
             String itemCode,
             String millOperator,
@@ -494,6 +494,23 @@ public final class ApiModels {
             @DecimalMin("0.001") BigDecimal averageBlankWeightGrams,
             String notes,
             Boolean startImmediately
+    ) {}
+
+    public record CreateBlankingProductionRecordRequest(
+            @NotBlank String batchNumber,
+            @NotBlank String materialCode,
+            @NotBlank String millOperator,
+            @NotBlank String preformerOperator,
+            @NotBlank String cartNumber,
+            @NotNull @Min(1) Integer quantity,
+            @NotNull @DecimalMin("0.001") @Digits(integer = 9, fraction = 3)
+            BigDecimal averageBlankWeightGrams,
+            @Size(max = 1500) String notes
+    ) {}
+
+    public record BlankingProductionRecordView(
+            BlankingBatchView batch,
+            BlankingCartView cart
     ) {}
 
     public record CompleteBlankingBatchRequest(
@@ -559,7 +576,7 @@ public final class ApiModels {
             @NotNull Long blankingBatchId,
             @NotNull @Min(1) Integer quantity,
             @NotNull @DecimalMin("0.001") @Digits(integer = 9, fraction = 3) BigDecimal averageBlankWeightGrams,
-            @NotNull Long destinationPressId,
+            Long destinationPressId,
             String blankingNote,
             Long shortageRequestId
     ) {}
@@ -581,6 +598,8 @@ public final class ApiModels {
             Integer returnedQuantity,
             BigDecimal averageBlankWeightGrams,
             BigDecimal materialWeightKg,
+            LocalDate productionDate,
+            ProductionShift shift,
             LocalDateTime createdAt,
             UserView createdBy,
             Long destinationPressId,
@@ -630,6 +649,10 @@ public final class ApiModels {
             @NotNull Long pressId,
             Boolean supervisorOverride,
             String overrideReason
+    ) {}
+
+    public record AssignCartToPressRequest(
+            @NotNull Long pressId
     ) {}
 
     public record CartReceiptView(
@@ -713,6 +736,8 @@ public final class ApiModels {
     public record CreateBlankReturnRequest(
             @NotNull Long cartId,
             @NotNull Long pressId,
+            BlankReturnType returnType,
+            Long productionRecordId,
             @NotNull @Min(1) Integer quantity,
             @NotNull @DecimalMin("0.000") BigDecimal measuredReturnWeightKg,
             @NotBlank String returnReason,
@@ -722,8 +747,21 @@ public final class ApiModels {
     public record ConfirmBlankReturnRequest(
             @NotNull @Min(0) Integer receivedQuantity,
             @NotNull @DecimalMin("0.000") BigDecimal receivedWeightKg,
-            String varianceNote
-    ) {}
+            String varianceNote,
+            @NotBlank @Size(max = 255) String username,
+            @NotBlank @Size(max = 50) String employeeId,
+            @NotBlank @Size(max = 255) String password
+    ) {
+        @Override
+        public String toString() {
+            return "ConfirmBlankReturnRequest[receivedQuantity=" + receivedQuantity
+                    + ", receivedWeightKg=" + receivedWeightKg
+                    + ", varianceNote=" + varianceNote
+                    + ", username=" + username
+                    + ", employeeId=" + employeeId
+                    + ", password=[PROTECTED]]";
+        }
+    }
 
     public record BlankReturnView(
             Long id,
@@ -734,6 +772,8 @@ public final class ApiModels {
             String cartNumber,
             Long blankingBatchId,
             String blankingBatchNumber,
+            BlankReturnType returnType,
+            Long productionRecordId,
             String compoundCode,
             String compoundBatchNumber,
             String itemCode,
@@ -742,10 +782,12 @@ public final class ApiModels {
             BigDecimal averageBlankWeightGrams,
             String returnReason,
             UserView sendingOperator,
+            String sendingOperatorEmployeeId,
             LocalDateTime sendingDateTime,
             ProductionShift shift,
             String mouldingNote,
             UserView receivingOperator,
+            String receivingOperatorEmployeeId,
             LocalDateTime receivingDateTime,
             Integer receivedQuantity,
             BigDecimal receivedWeightKg,
