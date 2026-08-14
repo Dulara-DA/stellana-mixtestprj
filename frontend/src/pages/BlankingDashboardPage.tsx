@@ -103,7 +103,7 @@ export function BlankingDashboardPage() {
         <section className="card overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
             <div><h2 className="font-black text-ink">Current blanking batches</h2><p className="mt-1 text-xs text-slate-500">Official server shift and IN/OUT timestamps</p></div>
-            <Link to="/blanking/batches" className="btn-primary">Manage batches</Link>
+            <Link to="/blanking/batches" className="btn-primary">Production records</Link>
           </div>
           <div className="overflow-x-auto">
             <table className="production-table">

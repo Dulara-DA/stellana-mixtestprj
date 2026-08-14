@@ -196,8 +196,8 @@ export function DashboardPage() {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <th className="border-b border-slate-200 px-5 py-3">Compound Type</th>
                   <th className="border-b border-slate-200 px-5 py-3">Batch No.</th>
-                  <th className="border-b border-slate-200 px-5 py-3">Compound</th>
                   <th className="border-b border-slate-200 px-5 py-3">Current stage</th>
                   <th className="border-b border-slate-200 px-5 py-3">IN time</th>
                   <th className="border-b border-slate-200 px-5 py-3">OUT time</th>
@@ -218,12 +218,12 @@ export function DashboardPage() {
                   return (
                     <tr key={batch.id} className={processing ? 'bg-blue-50/60' : 'hover:bg-slate-50'}>
                       <td className="border-b border-slate-100 px-5 py-4">
-                        <p className="text-lg font-black text-ink">{batch.batchNumber}</p>
-                        <p className="mt-1 text-xs font-semibold text-process">{batch.factoryReference}</p>
-                      </td>
-                      <td className="border-b border-slate-100 px-5 py-4">
                         <p className="font-bold text-slate-700">{batch.compoundName}</p>
                         <p className="mt-1 text-xs text-slate-500">Rev {batch.revisionNumber} · {batch.plannedQuantityKg} kg</p>
+                      </td>
+                      <td className="border-b border-slate-100 px-5 py-4">
+                        <p className="text-lg font-black text-ink">{batch.batchNumber}</p>
+                        <p className="mt-1 text-xs font-semibold text-process">{batch.factoryReference}</p>
                       </td>
                       <td className="border-b border-slate-100 px-5 py-4">
                         <p className="font-bold text-slate-700">{stageNumber ? `Stage ${stageNumber}` : 'Not started'}</p>

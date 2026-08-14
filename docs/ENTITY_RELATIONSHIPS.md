@@ -45,6 +45,7 @@
 - **BlankingCart** belongs to one **BlankingBatch**, has a unique cart number,
   destination **Press**, item/compound/batch snapshots, integer
   quantity/remaining/returned balances, calculated material weight,
+  official production date/shift, preparation timestamp,
   creator/holder/releaser/dispatcher and controlled lifecycle state.
 - **CartTransfer** is the one-to-one dispatch transaction for a cart.
   **CartReceipt** is the one-to-one receipt transaction, which prevents double
@@ -53,11 +54,16 @@
   snapshots shift, date and operator employee ID and stores good tyres,
   rejected tyres, rejected tyre weight, rejected blanks, remaining blanks and
   downtime.
-- **BlankReturn** reserves unused pieces from exactly one received Cart and
-  Press. It stores Moulding sending and Blanking receiving identities and
-  server timestamps, declared/received piece and weight values, variances,
-  reason/notes and a controlled return state. Blanking inventory is increased
-  only when receipt is confirmed.
+- **BlankReturn** records reusable unused pieces, rejected blanks, or rejected
+  tyres from exactly one received Cart and Press. Rejected returns reference
+  the exact completed MouldingProductionRecord that declared the loss. It stores
+  Moulding sending and Blanking receiving identities and
+  EPF snapshots, server timestamps, declared/received piece and weight values,
+  variances, reason/notes and a controlled return state. Blanking inventory is
+  increased only when an unused-good-blank receipt is confirmed; confirming
+  rejected blanks or tyres never restores usable inventory. The Compound Stock page exposes a
+  separate returned-blanks section; returned pieces are not incorrectly added
+  to raw compound kilograms.
 - **InventoryTransaction** is an append-only movement ledger. Each row records a
   movement type, source/destination section and record, quantity/unit, optional
   kilogram weight, authenticated actor, server timestamp and reason/reference.
@@ -111,16 +117,21 @@ Press ──< MaterialShortageRequest ──< RequestMessage
     approved-stock reference. When an approved-stock reference is supplied, Lab
     PASS or an audited temporary lab bypass, controlled status, reservation,
     and non-negative kg rules still apply.
-13. A cart reserves good blank count from its source batch before dispatch.
-14. Receipt requires `DISPATCHED`, is unique per cart, and atomically adds
-    quantity to the receiving Press. A wrong-press override requires an
-    authorized role and reason.
+13. A cart reserves good blank count from its source batch before dispatch. Its
+    destination Press is intentionally empty until Moulding physically receives
+    and allocates the cart.
+14. Receipt requires `DISPATCHED`, a receiving account with an EPF/employee
+    number, and is unique per cart. Moulding Operators, Supervisors, Managers
+    and System Administrators can select the actual receiving Press. The actual
+    receiving Press must have `availableBlankQuantity = 0`; no role may add a
+    new cart on top of an existing press balance. Receipt atomically adds
+    quantity to the actual receiving Press.
 15. Moulding validates `good tyres + rejected tyres + rejected blanks <=
     received/available blanks`, then atomically updates cart and Press balances.
 16. Manager production corrections preserve the original record identity,
     rebalance inventory, and append an old/new/reason audit event.
-17. Official production date, shift, IN/OUT timestamps and employee ID snapshots
-    are server-controlled.
+17. Official production date, shift, batch IN/OUT timestamps, cart preparation
+    time and employee ID snapshots are server-controlled.
 18. Expected blanks use `(issued kg × 1000) ÷ average grams`; the exact decimal
     is stored at six decimal places and the whole-piece value is the floor.
     Fractional results are explicitly flagged instead of silently rounded.
@@ -131,7 +142,8 @@ Press ──< MaterialShortageRequest ──< RequestMessage
     backend controlled. Pessimistic row locks and optimistic entity versions
     protect stock, batch, cart and press counters against concurrent updates.
 21. A return deducts/reserves Press and Cart inventory when prepared, and adds
-    pieces back to Blanking only after confirmed receipt. Duplicate receipt,
+    pieces back to the originating BlankingBatch only after confirmed receipt.
+    Sender and receiver EPFs are mandatory and snapshotted. Duplicate receipt,
     dispatch and return confirmation are rejected.
 
 See `docs/database-schema.sql` for a portable PostgreSQL-oriented schema reference.

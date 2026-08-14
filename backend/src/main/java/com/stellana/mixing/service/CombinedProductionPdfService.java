@@ -92,7 +92,8 @@ public class CombinedProductionPdfService {
         List<Long> blankingIds = blankingBatches.stream().map(BlankingBatch::getId).toList();
         List<BlankingCart> carts = blankingCartRepository.findAllByOrderByCreatedAtDesc().stream()
                 .filter(value -> blankingIds.contains(value.getBlankingBatch().getId()))
-                .filter(value -> pressId == null || value.getDestinationPress().getId().equals(pressId))
+                .filter(value -> pressId == null || (value.getDestinationPress() != null
+                        && value.getDestinationPress().getId().equals(pressId)))
                 .filter(value -> matches(value.getCartNumber(), cartNumber))
                 .toList();
         List<MouldingProductionRecord> mouldingRecords = mouldingRecordRepository
@@ -397,7 +398,8 @@ public class CombinedProductionPdfService {
                 cart.getMaterialCode(),
                 String.valueOf(cart.getQuantity()),
                 String.valueOf(cart.getRemainingQuantity()),
-                cart.getDestinationPress().getPressNumber(),
+                cart.getDestinationPress() == null ? "Pending Moulding receipt"
+                        : cart.getDestinationPress().getPressNumber(),
                 dateTime(cart.getDispatchedAt())
                         + "\n" + (cart.getDispatchedBy() == null
                         ? "Not dispatched"

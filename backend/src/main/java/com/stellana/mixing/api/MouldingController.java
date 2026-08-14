@@ -49,6 +49,15 @@ public class MouldingController {
         return mouldingService.upcomingCarts();
     }
 
+    @PatchMapping("/carts/{cartId}/assign")
+    @PreAuthorize("hasAnyRole('MOULDING_OPERATOR','MOULDING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public BlankingCartView assignCartToPress(
+            @PathVariable Long cartId,
+            @Valid @RequestBody AssignCartToPressRequest request
+    ) {
+        return mouldingService.assignCartToPress(cartId, request);
+    }
+
     @PostMapping("/carts/{cartId}/receive")
     @PreAuthorize("hasAnyRole('MOULDING_OPERATOR','MOULDING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
     public CartReceiptView receiveCart(

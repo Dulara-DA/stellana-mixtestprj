@@ -8,6 +8,7 @@ import com.stellana.mixing.exception.BusinessRuleException;
 import com.stellana.mixing.exception.NotFoundException;
 import com.stellana.mixing.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -34,6 +35,7 @@ public class BlankReturnService {
     private final AuditService auditService;
     private final InventoryLedgerService inventoryLedgerService;
     private final RealtimeEventService realtimeEventService;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional(readOnly = true)
     public List<BlankReturnView> list() {
@@ -45,43 +47,48 @@ public class BlankReturnService {
     @Transactional
     public BlankReturnView prepare(CreateBlankReturnRequest request) {
         UserAccount actor = currentUserService.requireCurrentUser();
+        String sendingEmployeeId = requireEmployeeId(actor,
+                "The Moulding operator preparing this return");
+        BlankReturnType returnType = request.returnType() == null
+                ? BlankReturnType.UNUSED_GOOD_BLANKS : request.returnType();
         BlankingCart cart = cartRepository.findByIdForUpdate(request.cartId())
                 .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
         Press press = pressRepository.findByIdForUpdate(request.pressId())
                 .orElseThrow(() -> new NotFoundException("Press not found."));
-        if (!EnumSet.of(BlankingCartStatus.RECEIVED_AT_MOULDING, BlankingCartStatus.PARTIALLY_CONSUMED)
-                .contains(cart.getStatus())) {
-            throw new BusinessRuleException("Only received or partially consumed carts can return unused blanks.");
-        }
         CartReceipt receipt = receiptRepository.findByCartId(cart.getId())
                 .orElseThrow(() -> new BusinessRuleException("The cart receipt was not found."));
         if (!receipt.getPress().getId().equals(press.getId())) {
             throw new BusinessRuleException("The selected cart is not held at this press.");
         }
-        if (productionRepository.findFirstByCartIdAndEndTimeIsNull(cart.getId()).isPresent()) {
-            throw new BusinessRuleException("Complete the active press production record before preparing a return.");
-        }
-        if (request.quantity() > cart.getRemainingQuantity()
-                || request.quantity() > press.getAvailableBlankQuantity()) {
-            throw new BusinessRuleException("Return quantity exceeds the available cart or press inventory.");
-        }
-        BigDecimal averageWeight = cart.getAverageBlankWeightGrams() == null
-                ? cart.getBlankingBatch().getAverageBlankWeightGrams()
-                : cart.getAverageBlankWeightGrams();
+        MouldingProductionRecord productionRecord = resolveProductionRecord(request, returnType, cart, press);
+        BigDecimal averageWeight = returnType == BlankReturnType.REJECTED_TYRES
+                ? productionRecord.getRejectedTyreWeightPerItemGrams()
+                : cart.getAverageBlankWeightGrams() == null
+                        ? cart.getBlankingBatch().getAverageBlankWeightGrams()
+                        : cart.getAverageBlankWeightGrams();
         if (averageWeight == null || averageWeight.signum() <= 0) {
-            throw new BusinessRuleException("Average blank weight is required before unused blanks can be returned.");
+            if (request.measuredReturnWeightKg().signum() <= 0) {
+                throw new BusinessRuleException(
+                        "This historical cart has no per-item weight. Enter the actual total return weight in kg so it can be derived.");
+            }
+            averageWeight = request.measuredReturnWeightKg()
+                    .multiply(BigDecimal.valueOf(1000))
+                    .divide(BigDecimal.valueOf(request.quantity()), 3, RoundingMode.HALF_UP);
         }
 
-        cart.setRemainingQuantity(cart.getRemainingQuantity() - request.quantity());
-        cart.setStatus(cart.getRemainingQuantity() == 0
-                ? BlankingCartStatus.RETURN_PENDING : BlankingCartStatus.PARTIALLY_CONSUMED);
-        cartRepository.save(cart);
-        press.setAvailableBlankQuantity(press.getAvailableBlankQuantity() - request.quantity());
-        press.setLastActivityAt(shiftService.now());
-        if (press.getAvailableBlankQuantity() == 0) {
-            press.setStatus(PressStatus.WAITING_FOR_BLANKS);
+        if (returnType == BlankReturnType.UNUSED_GOOD_BLANKS) {
+            validateUnusedBlankReturn(request, cart, press);
+            cart.setRemainingQuantity(cart.getRemainingQuantity() - request.quantity());
+            cart.setStatus(cart.getRemainingQuantity() == 0
+                    ? BlankingCartStatus.RETURN_PENDING : BlankingCartStatus.PARTIALLY_CONSUMED);
+            cartRepository.save(cart);
+            press.setAvailableBlankQuantity(press.getAvailableBlankQuantity() - request.quantity());
+            press.setLastActivityAt(shiftService.now());
+            if (press.getAvailableBlankQuantity() == 0) {
+                press.setStatus(PressStatus.WAITING_FOR_BLANKS);
+            }
+            pressRepository.save(press);
         }
-        pressRepository.save(press);
 
         ShiftService.ShiftContext shift = shiftService.current();
         BlankReturn saved = returnRepository.save(BlankReturn.builder()
@@ -89,6 +96,8 @@ public class BlankReturnService {
                 .press(press)
                 .cart(cart)
                 .blankingBatch(cart.getBlankingBatch())
+                .returnType(returnType)
+                .productionRecord(productionRecord)
                 .compoundCode(cart.getMaterialCode())
                 .compoundBatchNumber(cart.getMixingBatchNumber() == null
                         ? cart.getBlankingBatch().getMixingBatchNumber() : cart.getMixingBatchNumber())
@@ -98,6 +107,7 @@ public class BlankReturnService {
                 .averageBlankWeightGrams(averageWeight)
                 .returnReason(request.returnReason().trim())
                 .sendingOperator(actor)
+                .sendingOperatorEmployeeId(sendingEmployeeId)
                 .sendingDateTime(shift.serverTime())
                 .shift(shift.shift())
                 .mouldingNote(trimToNull(request.mouldingNote()))
@@ -112,13 +122,17 @@ public class BlankReturnService {
                 "BlankReturn",
                 saved.getId(),
                 BigDecimal.valueOf(saved.getPreparedQuantity()),
-                "pieces",
+                returnType == BlankReturnType.REJECTED_TYRES ? "tyres" : "pieces",
                 saved.getMeasuredReturnWeightKg(),
                 actor,
-                saved.getReturnNumber());
+                saved.getReturnNumber() + " / " + returnType);
         auditService.record(actor, "PREPARE_BLANK_RETURN", "BlankReturn", saved.getId(), null,
-                saved.getReturnNumber() + " / " + saved.getPreparedQuantity() + " pieces / "
-                        + saved.getMeasuredReturnWeightKg() + " kg",
+                saved.getReturnNumber() + " / cart " + saved.getCart().getCartNumber()
+                        + " / " + returnType
+                        + " / " + saved.getPreparedQuantity()
+                        + (returnType == BlankReturnType.REJECTED_TYRES ? " tyres / " : " pieces / ")
+                        + saved.getMeasuredReturnWeightKg() + " kg / sent by "
+                        + actor.getFullName() + " / EPF " + sendingEmployeeId,
                 null, null);
         publish("BLANK_RETURN_PREPARED", saved);
         return blankReturn(saved);
@@ -127,10 +141,15 @@ public class BlankReturnService {
     @Transactional
     public BlankReturnView send(Long id) {
         UserAccount actor = currentUserService.requireCurrentUser();
+        String sendingEmployeeId = requireEmployeeId(actor,
+                "The Moulding operator sending this return");
         BlankReturn value = requireForUpdate(id);
         if (value.getStatus() != BlankReturnStatus.RETURN_PREPARED) {
             throw new BusinessRuleException("Only a prepared return can be sent to Blanking.");
         }
+        value.setSendingOperator(actor);
+        value.setSendingOperatorEmployeeId(sendingEmployeeId);
+        value.setSendingDateTime(shiftService.now());
         value.setStatus(BlankReturnStatus.SENT_TO_BLANKING);
         BlankReturn saved = returnRepository.save(value);
         inventoryLedgerService.record(
@@ -142,12 +161,14 @@ public class BlankReturnService {
                 "BlankingBatch",
                 saved.getBlankingBatch().getId(),
                 BigDecimal.valueOf(saved.getPreparedQuantity()),
-                "pieces",
+                (saved.getReturnType() == BlankReturnType.REJECTED_TYRES) ? "tyres" : "pieces",
                 saved.getMeasuredReturnWeightKg(),
                 actor,
                 saved.getReturnNumber());
         auditService.record(actor, "SEND_BLANK_RETURN", "BlankReturn", saved.getId(),
-                "RETURN_PREPARED", "SENT_TO_BLANKING", null, null);
+                "RETURN_PREPARED", "SENT_TO_BLANKING / cart " + saved.getCart().getCartNumber()
+                        + " / " + actor.getFullName() + " / EPF " + sendingEmployeeId,
+                null, null);
         publish("BLANK_RETURN_SENT", saved);
         return blankReturn(saved);
     }
@@ -155,6 +176,9 @@ public class BlankReturnService {
     @Transactional
     public BlankReturnView confirm(Long id, ConfirmBlankReturnRequest request) {
         UserAccount actor = currentUserService.requireCurrentUser();
+        String receivingEmployeeId = requireEmployeeId(actor,
+                "The Blanking operator receiving this return");
+        verifyConfirmationCredentials(actor, receivingEmployeeId, request);
         BlankReturn value = requireForUpdate(id);
         if (!EnumSet.of(BlankReturnStatus.SENT_TO_BLANKING, BlankReturnStatus.AWAITING_CONFIRMATION,
                 BlankReturnStatus.QUANTITY_DISPUTED)
@@ -176,6 +200,7 @@ public class BlankReturnService {
         }
         if (disputed && !supervisor) {
             value.setReceivingOperator(actor);
+            value.setReceivingOperatorEmployeeId(receivingEmployeeId);
             value.setReceivingDateTime(shiftService.now());
             value.setReceivedQuantity(request.receivedQuantity());
             value.setReceivedWeightKg(request.receivedWeightKg());
@@ -193,23 +218,32 @@ public class BlankReturnService {
             return blankReturn(reported);
         }
 
-        BlankingBatch batch = batchRepository.findByIdForUpdate(value.getBlankingBatch().getId())
-                .orElseThrow(() -> new NotFoundException("Blanking batch not found."));
-        BlankingCart cart = cartRepository.findByIdForUpdate(value.getCart().getId())
-                .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
-        batch.setAvailableGoodBlankQuantity(batch.getAvailableGoodBlankQuantity() + request.receivedQuantity());
-        batchRepository.save(batch);
-        cart.setReturnedQuantity((cart.getReturnedQuantity() == null ? 0 : cart.getReturnedQuantity())
-                + request.receivedQuantity());
-        cart.setStatus(cart.getRemainingQuantity() == 0
-                ? BlankingCartStatus.RETURNED_TO_BLANKING : BlankingCartStatus.PARTIALLY_CONSUMED);
-        cartRepository.save(cart);
+        BlankReturnType returnType = value.getReturnType() == null
+                ? BlankReturnType.UNUSED_GOOD_BLANKS : value.getReturnType();
+        BlankingBatch batch = value.getBlankingBatch();
+        if (returnType == BlankReturnType.UNUSED_GOOD_BLANKS) {
+            batch = batchRepository.findByIdForUpdate(value.getBlankingBatch().getId())
+                    .orElseThrow(() -> new NotFoundException("Blanking batch not found."));
+            BlankingCart cart = cartRepository.findByIdForUpdate(value.getCart().getId())
+                    .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
+            batch.setAvailableGoodBlankQuantity(batch.getAvailableGoodBlankQuantity() + request.receivedQuantity());
+            batchRepository.save(batch);
+            cart.setReturnedQuantity((cart.getReturnedQuantity() == null ? 0 : cart.getReturnedQuantity())
+                    + request.receivedQuantity());
+            cart.setStatus(cart.getRemainingQuantity() == 0
+                    ? BlankingCartStatus.RETURNED_TO_BLANKING : BlankingCartStatus.PARTIALLY_CONSUMED);
+            cartRepository.save(cart);
+        }
 
         if (value.getReceivingOperator() == null) {
             value.setReceivingOperator(actor);
+            value.setReceivingOperatorEmployeeId(receivingEmployeeId);
         }
         if (value.getReceivingDateTime() == null) {
             value.setReceivingDateTime(shiftService.now());
+        }
+        if (!StringUtils.hasText(value.getReceivingOperatorEmployeeId())) {
+            value.setReceivingOperatorEmployeeId(value.getReceivingOperator().getEmployeeId());
         }
         value.setReceivedQuantity(request.receivedQuantity());
         value.setReceivedWeightKg(request.receivedWeightKg());
@@ -227,18 +261,105 @@ public class BlankReturnService {
                 "BlankingBatch",
                 batch.getId(),
                 BigDecimal.valueOf(request.receivedQuantity()),
-                "pieces",
+                returnType == BlankReturnType.REJECTED_TYRES ? "tyres" : "pieces",
                 request.receivedWeightKg(),
                 actor,
-                saved.getReturnNumber() + (disputed ? " / supervisor accepted variance" : " / balanced"));
+                saved.getReturnNumber() + " / " + returnType
+                        + (returnType != BlankReturnType.UNUSED_GOOD_BLANKS
+                                ? " / rejected material only; usable stock unchanged" : "")
+                        + (disputed ? " / supervisor accepted variance" : " / balanced"));
         auditService.record(actor, "CONFIRM_BLANK_RETURN", "BlankReturn", saved.getId(),
                 "Sent " + saved.getPreparedQuantity() + " / " + saved.getMeasuredReturnWeightKg() + " kg",
                 "Received " + request.receivedQuantity() + " / " + request.receivedWeightKg()
-                        + " kg / status " + saved.getStatus()
+                        + " kg / cart " + saved.getCart().getCartNumber()
+                        + " / " + returnType
+                        + " / received by " + saved.getReceivingOperator().getFullName()
+                        + " / EPF " + saved.getReceivingOperatorEmployeeId()
+                        + " / status " + saved.getStatus()
                         + (disputed ? " / " + request.varianceNote().trim() : ""),
                 null, null);
         publish(disputed ? "BLANK_RETURN_VARIANCE_RESOLVED" : "BLANK_RETURN_CONFIRMED", saved);
         return blankReturn(saved);
+    }
+
+    private void verifyConfirmationCredentials(
+            UserAccount actor,
+            String receivingEmployeeId,
+            ConfirmBlankReturnRequest request
+    ) {
+        boolean validUsername = actor.getEmail().equalsIgnoreCase(request.username().trim());
+        boolean validEmployeeId = receivingEmployeeId.equalsIgnoreCase(request.employeeId().trim());
+        boolean validPassword = passwordEncoder.matches(request.password(), actor.getPasswordHash());
+        if (!validUsername || !validEmployeeId || !validPassword) {
+            throw new BusinessRuleException(
+                    "Return confirmation credentials are invalid. Enter your own username/email, EPF number, and password.");
+        }
+    }
+
+    private MouldingProductionRecord resolveProductionRecord(
+            CreateBlankReturnRequest request,
+            BlankReturnType returnType,
+            BlankingCart cart,
+            Press press
+    ) {
+        if (request.productionRecordId() == null) {
+            if (returnType != BlankReturnType.UNUSED_GOOD_BLANKS) {
+                throw new BusinessRuleException("Select the Press Production Entry that recorded the rejected material.");
+            }
+            return null;
+        }
+        MouldingProductionRecord record = productionRepository.findById(request.productionRecordId())
+                .orElseThrow(() -> new NotFoundException("Press Production Entry not found."));
+        if (!record.getCart().getId().equals(cart.getId()) || !record.getPress().getId().equals(press.getId())) {
+            throw new BusinessRuleException("The selected Press Production Entry does not belong to this press and cart.");
+        }
+        if (record.getStatus() != MouldingRecordStatus.COMPLETED) {
+            throw new BusinessRuleException("Complete the Press Production Entry before preparing a return.");
+        }
+        if (returnType == BlankReturnType.REJECTED_BLANKS) {
+            if (record.getRejectedBlankQuantity() == null || record.getRejectedBlankQuantity() <= 0) {
+                throw new BusinessRuleException("The selected Press Production Entry has no rejected blanks.");
+            }
+            if (!request.quantity().equals(record.getRejectedBlankQuantity())) {
+                throw new BusinessRuleException("The rejected return quantity must match the rejected blanks recorded in the Press Production Entry.");
+            }
+            if (returnRepository.existsByProductionRecordIdAndReturnType(
+                    record.getId(), BlankReturnType.REJECTED_BLANKS)) {
+                throw new BusinessRuleException("Rejected blanks from this Press Production Entry already have a return record.");
+            }
+        } else if (returnType == BlankReturnType.REJECTED_TYRES) {
+            if (record.getRejectedTyreQuantity() == null || record.getRejectedTyreQuantity() <= 0) {
+                throw new BusinessRuleException("The selected Press Production Entry has no rejected tyres.");
+            }
+            if (!request.quantity().equals(record.getRejectedTyreQuantity())) {
+                throw new BusinessRuleException("The rejected return quantity must match the rejected tyres recorded in the Press Production Entry.");
+            }
+            BigDecimal recordedWeightKg = record.getTotalRejectedTyreWeightGrams()
+                    .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
+            if (request.measuredReturnWeightKg().subtract(recordedWeightKg).abs()
+                    .compareTo(new BigDecimal("0.001")) > 0) {
+                throw new BusinessRuleException("The rejected tyre return weight must match the weight recorded in the Press Production Entry.");
+            }
+            if (returnRepository.existsByProductionRecordIdAndReturnType(
+                    record.getId(), BlankReturnType.REJECTED_TYRES)) {
+                throw new BusinessRuleException("Rejected tyres from this Press Production Entry already have a return record.");
+            }
+        }
+        return record;
+    }
+
+    private void validateUnusedBlankReturn(CreateBlankReturnRequest request, BlankingCart cart, Press press) {
+        if (!EnumSet.of(BlankingCartStatus.RECEIVED_AT_MOULDING, BlankingCartStatus.PARTIALLY_CONSUMED)
+                .contains(cart.getStatus())) {
+            throw new BusinessRuleException("Only received or partially consumed carts can return unused blanks.");
+        }
+        if (productionRepository.findFirstByCartIdAndEndTimeIsNull(cart.getId()).isPresent()) {
+            throw new BusinessRuleException("Complete the active press production record before preparing a return.");
+        }
+        if (request.quantity() > cart.getRemainingQuantity()
+                || request.quantity() > press.getAvailableBlankQuantity()) {
+            throw new BusinessRuleException("Return quantity exceeds the available cart or press inventory.");
+        }
     }
 
     private BlankReturn requireForUpdate(Long id) {
@@ -246,8 +367,16 @@ public class BlankReturnService {
                 .orElseThrow(() -> new NotFoundException("Blank return not found."));
     }
 
+    private String requireEmployeeId(UserAccount actor, String actorDescription) {
+        if (!StringUtils.hasText(actor.getEmployeeId())) {
+            throw new BusinessRuleException(actorDescription + " must have an EPF/employee number.");
+        }
+        return actor.getEmployeeId().trim();
+    }
+
     private void publish(String eventType, BlankReturn value) {
-        String message = value.getReturnNumber() + " / " + value.getPreparedQuantity() + " pieces";
+        String unit = value.getReturnType() == BlankReturnType.REJECTED_TYRES ? " tyres" : " pieces";
+        String message = value.getReturnNumber() + " / " + value.getPreparedQuantity() + unit;
         realtimeEventService.productionChanged("MOULDING", eventType, value.getId(), message);
         realtimeEventService.productionChanged("BLANKING", eventType, value.getId(), message);
     }

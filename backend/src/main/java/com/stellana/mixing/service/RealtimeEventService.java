@@ -3,6 +3,8 @@ package com.stellana.mixing.service;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -41,8 +43,10 @@ public class RealtimeEventService {
                 "referenceId", referenceId == null ? 0 : referenceId,
                 "message", message,
                 "timestamp", LocalDateTime.now().toString());
-        messagingTemplate.convertAndSend("/topic/production", payload);
-        messagingTemplate.convertAndSend("/topic/" + section.toLowerCase(), payload);
+        publishAfterCommit(() -> {
+            messagingTemplate.convertAndSend("/topic/production", payload);
+            messagingTemplate.convertAndSend("/topic/" + section.toLowerCase(), payload);
+        });
     }
 
     public void shortagesChanged(String eventType, Long requestId, String message) {
@@ -54,5 +58,19 @@ public class RealtimeEventService {
                 "timestamp", LocalDateTime.now().toString());
         messagingTemplate.convertAndSend("/topic/production", payload);
         messagingTemplate.convertAndSend("/topic/shortages", payload);
+    }
+
+    private void publishAfterCommit(Runnable publication) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()
+                || !TransactionSynchronizationManager.isActualTransactionActive()) {
+            publication.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                publication.run();
+            }
+        });
     }
 }

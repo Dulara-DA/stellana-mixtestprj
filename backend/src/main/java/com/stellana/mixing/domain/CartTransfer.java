@@ -33,8 +33,8 @@ public class CartTransfer extends BaseEntity {
     @Column(nullable = false)
     private ProductionSection fromSection;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "destination_press_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "destination_press_id")
     private Press destinationPress;
 
     @Column(nullable = false)

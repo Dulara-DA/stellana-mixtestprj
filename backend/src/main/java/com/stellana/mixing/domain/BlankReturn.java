@@ -32,6 +32,15 @@ public class BlankReturn extends BaseEntity {
     @JoinColumn(name = "blanking_batch_id", nullable = false)
     private BlankingBatch blankingBatch;
 
+    @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "varchar(40) default 'UNUSED_GOOD_BLANKS'")
+    @Builder.Default
+    private BlankReturnType returnType = BlankReturnType.UNUSED_GOOD_BLANKS;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "production_record_id")
+    private MouldingProductionRecord productionRecord;
+
     @Column(nullable = false)
     private String compoundCode;
 
@@ -56,6 +65,9 @@ public class BlankReturn extends BaseEntity {
     @JoinColumn(name = "sending_operator_id", nullable = false)
     private UserAccount sendingOperator;
 
+    @Column(length = 100)
+    private String sendingOperatorEmployeeId;
+
     @Column(nullable = false)
     private LocalDateTime sendingDateTime;
 
@@ -69,6 +81,9 @@ public class BlankReturn extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "receiving_operator_id")
     private UserAccount receivingOperator;
+
+    @Column(length = 100)
+    private String receivingOperatorEmployeeId;
 
     private LocalDateTime receivingDateTime;
     private Integer receivedQuantity;

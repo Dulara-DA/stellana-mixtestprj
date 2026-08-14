@@ -356,11 +356,13 @@ export interface BlankingCart {
   returnedQuantity: number
   averageBlankWeightGrams?: number
   materialWeightKg?: number
+  productionDate?: string
+  shift?: ProductionShift
   createdAt: string
   createdBy: User
-  destinationPressId: number
-  destinationPressNumber: string
-  destinationPressName: string
+  destinationPressId: number | null
+  destinationPressNumber: string | null
+  destinationPressName: string | null
   dispatchedAt?: string
   dispatchedBy?: User
   heldAt?: string
@@ -454,6 +456,8 @@ export type BlankReturnStatus =
   | 'QUANTITY_DISPUTED'
   | 'CLOSED'
 
+export type BlankReturnType = 'UNUSED_GOOD_BLANKS' | 'REJECTED_BLANKS' | 'REJECTED_TYRES'
+
 export interface BlankReturn {
   id: number
   returnNumber: string
@@ -463,6 +467,8 @@ export interface BlankReturn {
   cartNumber: string
   blankingBatchId: number
   blankingBatchNumber: string
+  returnType: BlankReturnType
+  productionRecordId?: number
   compoundCode: string
   compoundBatchNumber: string
   itemCode?: string
@@ -471,10 +477,12 @@ export interface BlankReturn {
   averageBlankWeightGrams: number
   returnReason: string
   sendingOperator: User
+  sendingOperatorEmployeeId: string
   sendingDateTime: string
   shift: ProductionShift
   mouldingNote?: string
   receivingOperator?: User
+  receivingOperatorEmployeeId?: string
   receivingDateTime?: string
   receivedQuantity?: number
   receivedWeightKg?: number

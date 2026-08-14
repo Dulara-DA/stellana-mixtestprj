@@ -43,6 +43,8 @@ public class BlankingService {
     @Transactional
     public BlankingBatchView createBatch(CreateBlankingBatchRequest request) {
         UserAccount actor = currentUserService.requireCurrentUser();
+        BigDecimal materialIssuedKg = request.materialConsumedKg() == null
+                ? BigDecimal.ZERO : request.materialConsumedKg().setScale(3, RoundingMode.HALF_UP);
         if (blankingBatchRepository.existsByBatchNumberIgnoreCase(request.batchNumber())) {
             throw new BusinessRuleException("Blanking batch number already exists.");
         }
@@ -50,6 +52,10 @@ public class BlankingService {
         String mixingBatchNumber;
         String materialCode;
         if (request.approvedMaterialBatchId() != null) {
+            if (materialIssuedKg.signum() <= 0) {
+                throw new BusinessRuleException(
+                        "Compound issued quantity is required when creating a batch from approved Compound Stock.");
+            }
             approved = approvedMaterialBatchRepository.findByIdForUpdate(request.approvedMaterialBatchId())
                     .orElseThrow(() -> new NotFoundException("Approved material batch not found."));
             boolean laboratoryPassed = approved.getLabStatus() == LabDecision.PASS;
@@ -72,7 +78,7 @@ public class BlankingService {
                     CompoundStockStatus.REJECTED, CompoundStockStatus.DEPLETED).contains(stockStatus)) {
                 throw new BusinessRuleException("The selected compound stock is not available for Blanking.");
             }
-            if (approved.getAvailableQuantityKg().compareTo(request.materialConsumedKg()) < 0) {
+            if (approved.getAvailableQuantityKg().compareTo(materialIssuedKg) < 0) {
                 throw new BusinessRuleException("Material consumption exceeds the approved batch quantity available.");
             }
             mixingBatchNumber = approved.getMixingBatchNumber();
@@ -94,13 +100,13 @@ public class BlankingService {
         BigDecimal averageWeight = request.averageBlankWeightGrams();
         BigDecimal expected = averageWeight == null
                 ? null
-                : request.materialConsumedKg().multiply(BigDecimal.valueOf(1000))
+                : materialIssuedKg.multiply(BigDecimal.valueOf(1000))
                         .divide(averageWeight, 6, RoundingMode.HALF_UP);
         Integer expectedWhole = expected == null
                 ? null : expected.setScale(0, RoundingMode.DOWN).intValueExact();
         if (approved != null) {
-            approved.setAvailableQuantityKg(approved.getAvailableQuantityKg().subtract(request.materialConsumedKg()));
-            approved.setReservedQuantityKg(zero(approved.getReservedQuantityKg()).add(request.materialConsumedKg()));
+            approved.setAvailableQuantityKg(approved.getAvailableQuantityKg().subtract(materialIssuedKg));
+            approved.setReservedQuantityKg(zero(approved.getReservedQuantityKg()).add(materialIssuedKg));
             approved.setStockStatus(approved.getAvailableQuantityKg().signum() == 0
                     ? CompoundStockStatus.DEPLETED : CompoundStockStatus.PARTIALLY_USED);
             approvedMaterialBatchRepository.save(approved);
@@ -114,7 +120,7 @@ public class BlankingService {
                 .itemCode(trimToNull(request.itemCode()))
                 .millOperator(trimToNull(request.millOperator()))
                 .preformerOperator(trimToNull(request.preformerOperator()))
-                .materialConsumedKg(request.materialConsumedKg())
+                .materialConsumedKg(materialIssuedKg)
                 .plannedProductionQuantity(plannedQuantity)
                 .averageBlankWeightGrams(averageWeight)
                 .expectedBlankQuantity(expected)
@@ -127,20 +133,22 @@ public class BlankingService {
                 .notes(trimToNull(request.notes()))
                 .status(startImmediately ? BlankingBatchStatus.IN_PROGRESS : BlankingBatchStatus.PLANNED)
                 .build());
-        inventoryLedgerService.record(
-                InventoryTransactionType.COMPOUND_RESERVED,
-                ProductionSection.BLANKING,
-                ProductionSection.BLANKING,
-                approved == null ? "ManualMixingBatch" : "ApprovedMaterialBatch",
-                approved == null ? null : approved.getId(),
-                "BlankingBatch",
-                saved.getId(),
-                request.materialConsumedKg(),
-                "kg",
-                request.materialConsumedKg(),
-                actor,
-                (approved == null ? "Temporary manual compound issue to " : "Compound issued to ")
-                        + saved.getBatchNumber());
+        if (materialIssuedKg.signum() > 0) {
+            inventoryLedgerService.record(
+                    InventoryTransactionType.COMPOUND_RESERVED,
+                    ProductionSection.BLANKING,
+                    ProductionSection.BLANKING,
+                    approved == null ? "ManualMixingBatch" : "ApprovedMaterialBatch",
+                    approved == null ? null : approved.getId(),
+                    "BlankingBatch",
+                    saved.getId(),
+                    materialIssuedKg,
+                    "kg",
+                    materialIssuedKg,
+                    actor,
+                    (approved == null ? "Temporary manual compound issue to " : "Compound issued to ")
+                            + saved.getBatchNumber());
+        }
         auditService.record(actor, "CREATE_BLANKING_BATCH", "BlankingBatch", saved.getId(), null,
                 saved.getBatchNumber() + " / " + saved.getMixingBatchNumber(),
                 approved == null || approved.getMixingBatch() == null
@@ -148,6 +156,57 @@ public class BlankingService {
         realtimeEventService.productionChanged("BLANKING", "BLANKING_BATCH_CREATED", saved.getId(),
                 saved.getBatchNumber() + " created");
         return blankingBatch(saved);
+    }
+
+    @Transactional
+    public BlankingProductionRecordView createProductionRecord(
+            CreateBlankingProductionRecordRequest request
+    ) {
+        if (blankingBatchRepository.existsByBatchNumberIgnoreCase(request.batchNumber())) {
+            throw new BusinessRuleException("Blanking batch number already exists.");
+        }
+        if (blankingCartRepository.existsByCartNumberIgnoreCase(request.cartNumber())) {
+            throw new BusinessRuleException("Cart number already exists.");
+        }
+
+        BlankingBatchView createdBatch = createBatch(new CreateBlankingBatchRequest(
+                request.batchNumber(),
+                null,
+                request.batchNumber(),
+                request.materialCode(),
+                null,
+                request.quantity(),
+                null,
+                request.millOperator(),
+                request.preformerOperator(),
+                request.averageBlankWeightGrams(),
+                request.notes(),
+                true));
+
+        BlankingBatchView completedBatch = completeBatch(
+                createdBatch.id(),
+                new CompleteBlankingBatchRequest(
+                        request.quantity(),
+                        0,
+                        request.quantity(),
+                        BigDecimal.ZERO,
+                        null,
+                        false,
+                        null,
+                        request.notes()));
+
+        BlankingCartView cart = createCart(new CreateBlankingCartRequest(
+                request.cartNumber(),
+                completedBatch.id(),
+                request.quantity(),
+                request.averageBlankWeightGrams(),
+                null,
+                request.notes(),
+                null));
+
+        BlankingBatch finalBatch = blankingBatchRepository.findByIdForUpdate(completedBatch.id())
+                .orElseThrow(() -> new NotFoundException("Blanking batch not found after cart preparation."));
+        return new BlankingProductionRecordView(blankingBatch(finalBatch), cart);
     }
 
     @Transactional
@@ -187,10 +246,19 @@ public class BlankingService {
         BigDecimal averageWeight = value.getAverageBlankWeightGrams();
         BigDecimal rejectedWeightKg = request.rejectedMaterialWeightKg() == null
                 ? BigDecimal.ZERO : request.rejectedMaterialWeightKg();
+        boolean hasRecordedIssue = value.getMaterialConsumedKg() != null
+                && value.getMaterialConsumedKg().signum() > 0;
         boolean hasAverageWeight = averageWeight != null && averageWeight.signum() > 0;
         BigDecimal usedWeightKg;
         BigDecimal calculatedRemaining;
-        if (hasAverageWeight) {
+        if (!hasRecordedIssue) {
+            // Temporary manual batches intentionally omit compound issue weight. Do not
+            // invent a balance; cart preparation records the measured total blank weight.
+            usedWeightKg = BigDecimal.ZERO;
+            calculatedRemaining = request.measuredRemainingCompoundWeightKg() == null
+                    ? BigDecimal.ZERO
+                    : request.measuredRemainingCompoundWeightKg().setScale(3, RoundingMode.HALF_UP);
+        } else if (hasAverageWeight) {
             usedWeightKg = BigDecimal.valueOf(goodQuantity).multiply(averageWeight)
                     .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
             calculatedRemaining = value.getMaterialConsumedKg()
@@ -212,7 +280,7 @@ public class BlankingService {
         }
         BigDecimal measuredRemaining = request.measuredRemainingCompoundWeightKg() == null
                 ? calculatedRemaining : request.measuredRemainingCompoundWeightKg().setScale(3, RoundingMode.HALF_UP);
-        boolean unbalanced = measuredRemaining.subtract(calculatedRemaining).abs()
+        boolean unbalanced = hasRecordedIssue && measuredRemaining.subtract(calculatedRemaining).abs()
                 .compareTo(new BigDecimal("0.001")) > 0;
         if (unbalanced && (!Boolean.TRUE.equals(request.supervisorConfirmation())
                 || !isSupervisor(actor) || !StringUtils.hasText(request.balanceConfirmationReason()))) {
@@ -446,12 +514,14 @@ public class BlankingService {
         if (request.quantity() > batch.getAvailableGoodBlankQuantity()) {
             throw new BusinessRuleException("Cart quantity exceeds the available good blank quantity.");
         }
-        Press press = pressRepository.findById(request.destinationPressId())
-                .filter(Press::isActive)
-                .orElseThrow(() -> new NotFoundException("Destination press not found or inactive."));
+        Press press = request.destinationPressId() == null ? null
+                : pressRepository.findById(request.destinationPressId())
+                        .filter(Press::isActive)
+                        .orElseThrow(() -> new NotFoundException("Destination press not found or inactive."));
         BigDecimal averageBlankWeightGrams = request.averageBlankWeightGrams().setScale(3, RoundingMode.HALF_UP);
         BigDecimal materialWeightKg = averageBlankWeightGrams.multiply(BigDecimal.valueOf(request.quantity()))
                 .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
+        ShiftService.ShiftContext shift = shiftService.current();
 
         batch.setAvailableGoodBlankQuantity(batch.getAvailableGoodBlankQuantity() - request.quantity());
         blankingBatchRepository.save(batch);
@@ -466,6 +536,8 @@ public class BlankingService {
                 .returnedQuantity(0)
                 .averageBlankWeightGrams(averageBlankWeightGrams)
                 .materialWeightKg(materialWeightKg)
+                .productionDate(shift.productionDate())
+                .shift(shift.shift())
                 .createdBy(actor)
                 .destinationPress(press)
                 .status(BlankingCartStatus.PREPARED)
@@ -507,10 +579,12 @@ public class BlankingService {
         auditService.record(actor, "PREPARE_BLANKING_CART", "BlankingCart", saved.getId(), null,
                 saved.getCartNumber() + " / " + saved.getQuantity() + " blanks / "
                         + saved.getMaterialWeightKg() + " kg / " + saved.getAverageBlankWeightGrams()
-                        + " g per blank / " + press.getPressNumber(),
+                        + " g per blank / " + (press == null
+                        ? "press assigned during Moulding receipt" : press.getPressNumber()),
                 null, null);
         realtimeEventService.productionChanged("BLANKING", "CART_PREPARED", saved.getId(),
-                saved.getCartNumber() + " prepared for " + press.getPressNumber());
+                saved.getCartNumber() + (press == null
+                        ? " prepared for Moulding allocation" : " prepared for " + press.getPressNumber()));
         return blankingCart(saved);
     }
 
@@ -533,6 +607,7 @@ public class BlankingService {
             cart.setBlankingNote(appendNote(cart.getBlankingNote(), request.note().trim()));
         }
         BlankingCart saved = blankingCartRepository.save(cart);
+        Press plannedPress = saved.getDestinationPress();
         cartTransferRepository.save(CartTransfer.builder()
                 .cart(saved)
                 .fromSection(ProductionSection.BLANKING)
@@ -548,13 +623,14 @@ public class BlankingService {
                 ProductionSection.MOULDING,
                 "BlankingCart",
                 saved.getId(),
-                "Press",
-                saved.getDestinationPress().getId(),
+                plannedPress == null ? "MouldingReceipt" : "Press",
+                plannedPress == null ? null : plannedPress.getId(),
                 BigDecimal.valueOf(saved.getQuantity()),
                 "pieces",
                 saved.getMaterialWeightKg(),
                 actor,
-                "Dispatched to " + saved.getDestinationPress().getPressNumber());
+                plannedPress == null ? "Dispatched to Moulding for press allocation"
+                        : "Dispatched to " + plannedPress.getPressNumber());
         updateBatchDispatchStatus(saved.getBlankingBatch());
 
         shortageRequestRepository.findFirstByLinkedCartId(saved.getId()).ifPresent(shortage -> {
@@ -562,7 +638,8 @@ public class BlankingService {
             shortage.addMessage(RequestMessage.builder()
                     .sender(actor)
                     .message("Cart " + saved.getCartNumber() + " dispatched to "
-                            + saved.getDestinationPress().getPressNumber() + ".")
+                            + (plannedPress == null ? "Moulding for press allocation"
+                            : plannedPress.getPressNumber()) + ".")
                     .statusSnapshot(ShortageStatus.DISPATCHED)
                     .build());
             shortageRequestRepository.save(shortage);
@@ -572,10 +649,12 @@ public class BlankingService {
 
         auditService.record(actor, "DISPATCH_BLANKING_CART", "BlankingCart", saved.getId(),
                 BlankingCartStatus.PREPARED.name(),
-                BlankingCartStatus.DISPATCHED.name() + " / " + saved.getDestinationPress().getPressNumber(),
+                BlankingCartStatus.DISPATCHED.name() + " / " + (plannedPress == null
+                        ? "PRESS_PENDING" : plannedPress.getPressNumber()),
                 null, null);
         realtimeEventService.productionChanged("BLANKING", "CART_DISPATCHED", saved.getId(),
-                saved.getCartNumber() + " dispatched to " + saved.getDestinationPress().getPressNumber());
+                saved.getCartNumber() + (plannedPress == null
+                        ? " dispatched to Moulding" : " dispatched to " + plannedPress.getPressNumber()));
         return blankingCart(saved);
     }
 

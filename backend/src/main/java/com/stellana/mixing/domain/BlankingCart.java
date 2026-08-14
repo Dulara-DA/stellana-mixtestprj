@@ -16,6 +16,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -59,12 +60,17 @@ public class BlankingCart extends BaseEntity {
     @Column(precision = 12, scale = 3)
     private java.math.BigDecimal materialWeightKg;
 
+    private LocalDate productionDate;
+
+    @Enumerated(EnumType.STRING)
+    private ProductionShift shift;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by_id", nullable = false)
     private UserAccount createdBy;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "destination_press_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "destination_press_id")
     private Press destinationPress;
 
     private LocalDateTime dispatchedAt;

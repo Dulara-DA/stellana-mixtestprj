@@ -58,6 +58,49 @@ public class MouldingService {
                 .stream().map(com.stellana.mixing.api.ApiMapper::blankingCart).toList();
     }
 
+    @Transactional
+    public BlankingCartView assignCartToPress(Long cartId, AssignCartToPressRequest request) {
+        UserAccount actor = currentUserService.requireCurrentUser();
+        if (!StringUtils.hasText(actor.getEmployeeId())) {
+            throw new BusinessRuleException(
+                    "The operator assigning a cart must have an EPF/employee number.");
+        }
+        BlankingCart cart = blankingCartRepository.findByIdForUpdate(cartId)
+                .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
+        if (!EnumSet.of(BlankingCartStatus.PREPARED, BlankingCartStatus.READY_FOR_DISPATCH,
+                BlankingCartStatus.DISPATCHED).contains(cart.getStatus())) {
+            throw new BusinessRuleException(
+                    "Only an available prepared, ready, or dispatched cart can be assigned to a press.");
+        }
+        if (cart.getDestinationPress() != null) {
+            throw new BusinessRuleException(
+                    cart.getCartNumber() + " is already assigned to "
+                            + cart.getDestinationPress().getPressNumber() + ".");
+        }
+        Press press = pressRepository.findByIdForUpdate(request.pressId())
+                .filter(Press::isActive)
+                .orElseThrow(() -> new NotFoundException("Destination press not found or inactive."));
+
+        cart.setDestinationPress(press);
+        BlankingCart saved = blankingCartRepository.save(cart);
+        cartTransferRepository.findByCartId(saved.getId()).ifPresent(transfer -> {
+            transfer.setDestinationPress(press);
+            cartTransferRepository.save(transfer);
+        });
+
+        auditService.record(actor, "ASSIGN_CART_TO_PRESS", "BlankingCart", saved.getId(),
+                "UNASSIGNED",
+                press.getPressNumber() + " / cart " + saved.getCartNumber()
+                        + " / " + saved.getQuantity() + " blanks / EPF " + actor.getEmployeeId(),
+                null, null);
+        String eventMessage = saved.getCartNumber() + " assigned to " + press.getPressNumber();
+        realtimeEventService.productionChanged("MOULDING", "CART_ASSIGNED_TO_PRESS", saved.getId(),
+                eventMessage);
+        realtimeEventService.productionChanged("BLANKING", "CART_ASSIGNED_TO_PRESS", saved.getId(),
+                eventMessage);
+        return blankingCart(saved);
+    }
+
     @Transactional(readOnly = true)
     public List<CartReceiptView> receipts() {
         return cartReceiptRepository.findAllByOrderByReceivedAtDesc().stream()
@@ -68,6 +111,10 @@ public class MouldingService {
     @Transactional
     public CartReceiptView receiveCart(Long cartId, ReceiveCartRequest request) {
         UserAccount actor = currentUserService.requireCurrentUser();
+        if (!StringUtils.hasText(actor.getEmployeeId())) {
+            throw new BusinessRuleException(
+                    "The receiving production operator account must have an EPF/employee number.");
+        }
         BlankingCart cart = blankingCartRepository.findByIdForUpdate(cartId)
                 .orElseThrow(() -> new NotFoundException("Blanking cart not found."));
         if (cart.getStatus() != BlankingCartStatus.DISPATCHED) {
@@ -79,23 +126,31 @@ public class MouldingService {
         Press press = pressRepository.findByIdForUpdate(request.pressId())
                 .filter(Press::isActive)
                 .orElseThrow(() -> new NotFoundException("Receiving press not found or inactive."));
+        if (press.getAvailableBlankQuantity() > 0) {
+            throw new BusinessRuleException(
+                    press.getPressNumber() + " still has " + press.getAvailableBlankQuantity()
+                            + " blanks available. Consume or return the existing blanks and reconcile the press to 0 before receiving another cart.");
+        }
 
-        boolean wrongPress = !cart.getDestinationPress().getId().equals(press.getId());
+        Press plannedPress = cart.getDestinationPress();
+        boolean wrongPress = plannedPress != null && !plannedPress.getId().equals(press.getId());
         boolean authorizedOverride = Boolean.TRUE.equals(request.supervisorOverride())
-                && isSupervisorOrManager(actor);
+                && canAllocateCartToPress(actor);
         if (wrongPress && (!authorizedOverride || !StringUtils.hasText(request.overrideReason()))) {
             throw new BusinessRuleException(
-                    "The cart must be received at its destination press unless an authorized supervisor supplies a reason.");
+                    "Changing the cart from its planned press requires confirmation and a reason.");
         }
         ShiftService.ShiftContext shift = shiftService.current();
         CartReceiptStatus receiptStatus = wrongPress
                 ? CartReceiptStatus.RECEIVED_WITH_OVERRIDE
                 : CartReceiptStatus.RECEIVED;
 
+        cart.setDestinationPress(press);
         cart.setStatus(BlankingCartStatus.RECEIVED_AT_MOULDING);
         BlankingCart savedCart = blankingCartRepository.save(cart);
         CartTransfer transfer = cartTransferRepository.findByCartId(cart.getId())
                 .orElseThrow(() -> new BusinessRuleException("Cart dispatch transaction was not found."));
+        transfer.setDestinationPress(press);
         transfer.setStatus(CartTransferStatus.RECEIVED);
         cartTransferRepository.save(transfer);
 
@@ -153,7 +208,10 @@ public class MouldingService {
         auditService.record(actor, "RECEIVE_BLANKING_CART", "CartReceipt", receipt.getId(), null,
                 savedCart.getCartNumber() + " / " + savedCart.getQuantity() + " blanks / "
                         + savedPress.getPressNumber()
-                        + (wrongPress ? " / OVERRIDE: " + request.overrideReason().trim() : ""),
+                        + " / EPF " + actor.getEmployeeId()
+                        + (wrongPress ? " / REALLOCATED FROM "
+                                + plannedPress.getPressNumber()
+                                + ": " + request.overrideReason().trim() : ""),
                 null, null);
         realtimeEventService.productionChanged("MOULDING", "CART_RECEIVED", savedCart.getId(),
                 savedCart.getCartNumber() + " received at " + savedPress.getPressNumber());
@@ -483,8 +541,8 @@ public class MouldingService {
         }
     }
 
-    private boolean isSupervisorOrManager(UserAccount actor) {
-        return EnumSet.of(Role.MOULDING_SUPERVISOR, Role.MANAGER, Role.SYSTEM_ADMIN)
+    private boolean canAllocateCartToPress(UserAccount actor) {
+        return EnumSet.of(Role.MOULDING_OPERATOR, Role.MOULDING_SUPERVISOR, Role.MANAGER, Role.SYSTEM_ADMIN)
                 .contains(actor.getRole());
     }
 
