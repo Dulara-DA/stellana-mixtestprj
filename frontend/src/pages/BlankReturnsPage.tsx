@@ -79,6 +79,12 @@ export function BlankReturnsPage() {
     () => returns.find((value) => value.id === confirm.id),
     [returns, confirm.id],
   )
+  const selectedProductionRecord = useMemo(
+    () => records.find((record) => record.id === Number(prepare.productionRecordId)),
+    [prepare.productionRecordId, records],
+  )
+  const hasRecordedRejectedTyreWeight = prepare.returnType === 'REJECTED_TYRES'
+    && Number(selectedProductionRecord?.totalRejectedTyreWeightGrams ?? 0) > 0
   const calculatedWeight = prepare.returnType === 'REJECTED_TYRES'
     ? Number(prepare.measuredReturnWeightKg || 0)
     : selectedCart?.averageBlankWeightGrams && Number(prepare.quantity) > 0
@@ -270,7 +276,9 @@ export function BlankReturnsPage() {
         method: 'POST',
         body: JSON.stringify({
           receivedQuantity: Number(confirm.receivedQuantity),
-          receivedWeightKg: Number(confirm.receivedWeightKg),
+          receivedWeightKg: selectedConfirmReturn?.returnType === 'REJECTED_TYRES'
+            ? Number(selectedConfirmReturn.measuredReturnWeightKg ?? 0)
+            : Number(confirm.receivedWeightKg),
           varianceNote: confirm.varianceNote,
           username: confirm.username.trim(),
           employeeId: confirm.employeeId.trim(),
@@ -306,12 +314,12 @@ export function BlankReturnsPage() {
             <label><span className="label">Press</span><select className="field" required value={prepare.pressId} onChange={(e) => setPrepare({ ...prepare, pressId: e.target.value, cartId: '', productionRecordId: '', quantity: '', measuredReturnWeightKg: '' })}><option value="">Select press</option>{presses.map((press) => <option key={press.id} value={press.id}>{press.pressNumber}</option>)}</select></label>
             <label className="xl:col-span-2"><span className="label">Cart</span><select className="field" required disabled={prepare.returnType !== 'UNUSED_GOOD_BLANKS'} value={prepare.cartId} onChange={(e) => { const cart = carts.find((item) => item.id === Number(e.target.value)); setPrepare({ ...prepare, cartId: e.target.value, pressId: cart?.destinationPressId ? String(cart.destinationPressId) : prepare.pressId, productionRecordId: '', quantity: '', measuredReturnWeightKg: '' }) }}><option value="">Select received cart</option>{(prepare.returnType !== 'UNUSED_GOOD_BLANKS' && selectedCart ? [selectedCart] : eligibleCartsForPress).map((cart) => <option key={cart.id} value={cart.id}>{cart.cartNumber} · {cart.itemCode ?? cart.materialCode} · {cart.remainingQuantity} available</option>)}</select></label>
             <label><span className="label">Return quantity ({prepare.returnType === 'REJECTED_TYRES' ? 'tyres' : 'pieces'})</span><input className="field" required readOnly={prepare.returnType !== 'UNUSED_GOOD_BLANKS'} type="number" min="1" max={prepare.returnType === 'UNUSED_GOOD_BLANKS' ? selectedCart?.remainingQuantity : Number(prepare.quantity)} value={prepare.quantity} onChange={(e) => setPrepare({ ...prepare, quantity: e.target.value })} /></label>
-            <label><span className="label">Recorded return weight (kg)</span><input className="field" required readOnly={prepare.returnType === 'REJECTED_TYRES'} type="number" min="0" step="0.001" value={prepare.measuredReturnWeightKg} onChange={(e) => setPrepare({ ...prepare, measuredReturnWeightKg: e.target.value })} /></label>
-            <div className="rounded-xl bg-slate-50 p-3"><span className="label">Expected weight</span><p className="font-black">{calculatedWeight.toFixed(3)} kg</p><p className="text-xs text-slate-500">For receipt comparison</p></div>
+            {prepare.returnType === 'REJECTED_TYRES' ? <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><span className="label">Return weight</span><p className="font-black">{hasRecordedRejectedTyreWeight ? `${calculatedWeight.toFixed(3)} kg` : 'Not recorded'}</p><p className="text-xs text-slate-500">Rejected tyres are controlled by quantity</p></div> : <><label><span className="label">Recorded return weight (kg)</span><input className="field" required type="number" min="0" step="0.001" value={prepare.measuredReturnWeightKg} onChange={(e) => setPrepare({ ...prepare, measuredReturnWeightKg: e.target.value })} /></label><div className="rounded-xl bg-slate-50 p-3"><span className="label">Expected weight</span><p className="font-black">{calculatedWeight.toFixed(3)} kg</p><p className="text-xs text-slate-500">For receipt comparison</p></div></>}
             <label className="md:col-span-2 xl:col-span-3"><span className="label">Return reason</span><input className="field" required value={prepare.returnReason} onChange={(e) => setPrepare({ ...prepare, returnReason: e.target.value })} /></label>
             <label className="md:col-span-2 xl:col-span-3"><span className="label">Moulding note</span><input className="field" value={prepare.mouldingNote} onChange={(e) => setPrepare({ ...prepare, mouldingNote: e.target.value })} /></label>
           </div>
           {selectedCart && prepare.returnType !== 'REJECTED_TYRES' && !selectedCart.averageBlankWeightGrams && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">This historical cart has no saved average blank weight. Enter the actual total return weight above; the system will derive and save the per-item weight on this return record.</div>}
+          {prepare.returnType === 'REJECTED_TYRES' && selectedProductionRecord && !hasRecordedRejectedTyreWeight && <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-800">Production Entry #{selectedProductionRecord.id} has no saved rejected-tyre weight. No weight entry is required: the return is recorded and confirmed using the rejected tyre quantity.</div>}
           {prepare.returnType !== 'UNUSED_GOOD_BLANKS' && <p className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-800">{prepare.returnType === 'REJECTED_TYRES' ? 'Rejected tyres' : 'Rejected blanks'} are linked to Press Production Entry #{prepare.productionRecordId}. They are recorded and physically confirmed as rejected material, but they are not restored to usable Blanking stock.</p>}
           <div className="mt-5 flex justify-end"><button className="btn-primary" disabled={!user?.employeeId}>Prepare return</button></div>
         </form>
@@ -373,9 +381,9 @@ export function BlankReturnsPage() {
               <tr key={value.id}>
                 <td><p className="font-black">{value.returnNumber}</p><span className={`mt-1 inline-flex rounded-full px-2 py-1 text-[10px] font-black uppercase ${value.returnType !== 'UNUSED_GOOD_BLANKS' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{returnTypeLabel(value.returnType)}</span><p className="mt-1 text-xs text-slate-500">{value.compoundBatchNumber} → {value.blankingBatchNumber} · {value.itemCode ?? value.compoundCode}{value.productionRecordId ? ` · Entry #${value.productionRecordId}` : ''}</p></td>
                 <td>{value.pressNumber}<p className="text-xs text-slate-500">{value.cartNumber}</p></td>
-                <td>{value.preparedQuantity} {returnUnit(value.returnType)}<p className="text-xs text-slate-500">{value.measuredReturnWeightKg} kg · {value.averageBlankWeightGrams} g each</p></td>
+                <td>{value.preparedQuantity} {returnUnit(value.returnType)}<p className="text-xs text-slate-500">{value.returnType === 'REJECTED_TYRES' && Number(value.measuredReturnWeightKg) <= 0 ? 'Weight not recorded · quantity controlled' : `${value.measuredReturnWeightKg} kg · ${value.averageBlankWeightGrams} g each`}</p></td>
                 <td><p className="font-bold">Moulding: {value.sendingOperator.fullName}</p><p className="text-xs text-slate-500">EPF {value.sendingOperatorEmployeeId}</p><p className="text-xs text-slate-500">Prepared {formatDateTime(value.createdAt)} · Sent {formatDateTime(value.sendingDateTime)}</p>{value.receivingOperator && <><p className="mt-2 font-bold text-emerald-700">Blanking: {value.receivingOperator.fullName}</p><p className="text-xs text-emerald-700">EPF {value.receivingOperatorEmployeeId ?? value.receivingOperator.employeeId ?? 'TBC'} · Received {formatDateTime(value.receivingDateTime)}</p></>}</td>
-                <td>{value.receivedQuantity ?? '—'} {returnUnit(value.returnType)}<p className="text-xs text-slate-500">{value.receivedWeightKg ?? '—'} kg · variance {value.quantityVariance ?? 0} {returnUnit(value.returnType)} / {value.weightVarianceKg ?? 0} kg</p></td>
+                <td>{value.receivedQuantity ?? '—'} {returnUnit(value.returnType)}<p className="text-xs text-slate-500">{value.returnType === 'REJECTED_TYRES' && Number(value.receivedWeightKg ?? value.measuredReturnWeightKg) <= 0 ? `Weight not recorded · variance ${value.quantityVariance ?? 0} tyres` : `${value.receivedWeightKg ?? '—'} kg · variance ${value.quantityVariance ?? 0} ${returnUnit(value.returnType)} / ${value.weightVarianceKg ?? 0} kg`}</p></td>
                 <td><StatusBadge status={value.status} /></td>
                 <td><div className="flex flex-wrap gap-2">
                   {canPrepare && value.status === 'RETURN_PREPARED' && <button className="btn-primary" onClick={() => sendReturn(value)}><Send size={16} /> Send</button>}
@@ -400,7 +408,7 @@ export function BlankReturnsPage() {
             </div>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label><span className="label">Received quantity ({selectedConfirmReturn ? returnUnit(selectedConfirmReturn.returnType) : 'items'})</span><input className="field" required type="number" min="0" value={confirm.receivedQuantity} onChange={(e) => setConfirm({ ...confirm, receivedQuantity: e.target.value })} /></label>
-              <label><span className="label">Received weight (kg)</span><input className="field" required type="number" min="0" step="0.001" value={confirm.receivedWeightKg} onChange={(e) => setConfirm({ ...confirm, receivedWeightKg: e.target.value })} /></label>
+              {selectedConfirmReturn?.returnType === 'REJECTED_TYRES' ? <div className="rounded-xl border border-slate-200 bg-slate-50 p-3"><span className="label">Received weight</span><p className="font-black">Not required</p><p className="text-xs text-slate-500">Confirm the rejected tyre quantity only</p></div> : <label><span className="label">Received weight (kg)</span><input className="field" required type="number" min="0" step="0.001" value={confirm.receivedWeightKg} onChange={(e) => setConfirm({ ...confirm, receivedWeightKg: e.target.value })} /></label>}
               <label className="sm:col-span-2"><span className="label">Variance note (required if different)</span><textarea className="field min-h-24" value={confirm.varianceNote} onChange={(e) => setConfirm({ ...confirm, varianceNote: e.target.value })} /></label>
             </div>
             <fieldset className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">

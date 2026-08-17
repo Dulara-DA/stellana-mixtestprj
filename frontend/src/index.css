@@ -14,10 +14,18 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at 85% 0%, rgba(38, 133, 255, 0.08), transparent 30rem),
     #eef3f6;
@@ -65,7 +73,7 @@ textarea:focus-visible {
   }
 
   .table-shell {
-    @apply overflow-x-auto rounded-2xl border border-slate-200 bg-white;
+    @apply max-w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white;
   }
 
   .table-shell table {

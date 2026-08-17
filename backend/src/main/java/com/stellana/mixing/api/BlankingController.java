@@ -5,6 +5,7 @@ import com.stellana.mixing.service.ApprovedMaterialService;
 import com.stellana.mixing.service.BlankingService;
 import com.stellana.mixing.service.InventoryLedgerService;
 import com.stellana.mixing.service.BlankReturnService;
+import com.stellana.mixing.service.ProductionManagerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,6 +21,7 @@ public class BlankingController {
     private final BlankingService blankingService;
     private final InventoryLedgerService inventoryLedgerService;
     private final BlankReturnService blankReturnService;
+    private final ProductionManagerService productionManagerService;
 
     @GetMapping("/approved-materials")
     @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
@@ -31,6 +33,14 @@ public class BlankingController {
     @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
     public List<ApprovedMaterialBatchView> compoundStock() {
         return approvedMaterialService.list();
+    }
+
+    @GetMapping("/compound-stock/distribution")
+    @PreAuthorize("hasAnyRole('BLANKING_OPERATOR','BLANKING_SUPERVISOR','MANAGER','SYSTEM_ADMIN')")
+    public ProductionGenealogyView compoundStockDistribution(
+            @RequestParam String mixingBatchNumber
+    ) {
+        return productionManagerService.genealogy(mixingBatchNumber);
     }
 
     @PostMapping("/compound-stock/sync-passed")

@@ -70,6 +70,7 @@ class DownstreamProductionMockMvcTest {
                 objectMapper.createObjectNode()
                         .put("batchNumber", "BLK-ONE-CLICK")
                         .put("materialCode", "A-96-50")
+                        .put("itemCode", "UG 200x50")
                         .put("millOperator", "BLK-001 - Blanking Operator")
                         .put("preformerOperator", "BLK-002 - Preformer Operator")
                         .put("cartNumber", "CART-ONE-CLICK")
@@ -81,11 +82,13 @@ class DownstreamProductionMockMvcTest {
         JsonNode cart = recorded.path("cart");
         assertThat(batch.path("status").asText()).isEqualTo("READY");
         assertThat(batch.path("actualGoodBlankQuantity").asInt()).isEqualTo(12);
+        assertThat(batch.path("itemCode").asText()).isEqualTo("UG 200x50");
         assertThat(batch.path("startTime").isNull()).isFalse();
         assertThat(batch.path("endTime").isNull()).isFalse();
         assertThat(batch.path("availableGoodBlankQuantity").asInt()).isZero();
         assertThat(cart.path("blankingBatchId").asLong()).isEqualTo(batch.path("id").asLong());
         assertThat(cart.path("quantity").asInt()).isEqualTo(12);
+        assertThat(cart.path("itemCode").asText()).isEqualTo("UG 200x50");
         assertThat(cart.path("materialWeightKg").decimalValue()).isEqualByComparingTo("1.500");
         assertThat(cart.path("destinationPressId").isNull()).isTrue();
         assertThat(cart.path("status").asText()).isEqualTo("PREPARED");

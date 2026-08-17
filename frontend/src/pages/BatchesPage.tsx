@@ -43,7 +43,7 @@ export function BatchesPage() {
         }
       />
 
-      <div className="card mb-5 flex items-center gap-4 p-4">
+      <div className="card mb-5 flex flex-col items-stretch gap-4 p-4 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
           <input
@@ -53,7 +53,7 @@ export function BatchesPage() {
             placeholder="Search batch, recipe, compound, or officer…"
           />
         </div>
-        <select className="field w-64" value={status} onChange={(event) => setStatus(event.target.value)}>
+        <select className="field w-full sm:w-64" value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="ALL">All statuses</option>
           {[...new Set(batches.map((batch) => batch.status))].map((value) => (
             <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>

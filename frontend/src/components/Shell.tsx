@@ -111,7 +111,7 @@ export function Shell() {
         </div>
       </aside>
 
-      <div className="min-h-screen lg:ml-72">
+      <div className="min-h-screen min-w-0 lg:ml-72">
         <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
           <div className="flex min-h-16 items-center justify-between gap-3 px-4 sm:px-6 lg:h-18 lg:px-8">
             <div className="flex min-w-0 items-center gap-3">
@@ -126,7 +126,7 @@ export function Shell() {
             <NavigationLinks navigation={navigation} mobile />
           </nav>
         </header>
-        <main className="px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8"><Outlet /></main>
+        <main className="min-w-0 px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8"><Outlet /></main>
       </div>
     </div>
   )

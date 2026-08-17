@@ -16,6 +16,13 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0',
+    allowedHosts: [
+      'dularas-macbook-pro.tail3ca682.ts.net',
+      'statement-signature-challenged-silk.trycloudflare.com',
+      'infections-workshops-interface-hdtv.trycloudflare.com',
+      'amongst-inspections-dentists-thought.trycloudflare.com',
+    ],
     port: 5173,
     proxy: {
       '/api': 'http://localhost:8080',
@@ -24,5 +31,8 @@ export default defineConfig({
         ws: true,
       },
     },
+  },
+  preview: {
+    host: '0.0.0.0',
   },
 })

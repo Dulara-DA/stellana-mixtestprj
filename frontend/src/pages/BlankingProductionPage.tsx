@@ -15,6 +15,7 @@ const initialProductionForm = {
   existingBatchId: '',
   batchNumber: '',
   materialCode: '',
+  itemCode: '',
   millOperator: '',
   preformerOperator: '',
   cartNumber: '',
@@ -122,6 +123,7 @@ export function BlankingProductionPage() {
           body: JSON.stringify({
             batchNumber: productionForm.batchNumber,
             materialCode: productionForm.materialCode,
+            itemCode: productionForm.itemCode,
             millOperator: productionForm.millOperator,
             preformerOperator: productionForm.preformerOperator,
             cartNumber: productionForm.cartNumber,
@@ -232,6 +234,7 @@ export function BlankingProductionPage() {
       existingBatchId: String(batch.id),
       batchNumber: batch.batchNumber,
       materialCode: batch.materialCode,
+      itemCode: batch.itemCode ?? '',
       millOperator: batch.millOperator ?? '',
       preformerOperator: batch.preformerOperator ?? '',
     })
@@ -266,13 +269,14 @@ export function BlankingProductionPage() {
           <form onSubmit={recordProduction} className="p-5 sm:p-6">
             {selectedExistingBatch && (
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900">
-                <p><span className="font-black">Additional cart:</span> {selectedExistingBatch.batchNumber} · {selectedExistingBatch.materialCode} · {selectedExistingBatch.availableGoodBlankQuantity} blanks available</p>
+                <p><span className="font-black">Additional cart:</span> {selectedExistingBatch.batchNumber} · {selectedExistingBatch.materialCode} · {selectedExistingBatch.itemCode ?? 'Item TBC'} · {selectedExistingBatch.availableGoodBlankQuantity} blanks available</p>
                 <button type="button" className="font-black text-violet-700 underline" onClick={() => setProductionForm(initialProductionForm)}>Record a new batch instead</button>
               </div>
             )}
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <label><span className="label">Batch No.</span><input className="field" required disabled={Boolean(selectedExistingBatch)} value={productionForm.batchNumber} onChange={(event) => setProductionForm({ ...productionForm, batchNumber: event.target.value })} placeholder="6160" /></label>
               <label><span className="label">Compound type</span><input className="field" required disabled={Boolean(selectedExistingBatch)} value={productionForm.materialCode} onChange={(event) => setProductionForm({ ...productionForm, materialCode: event.target.value })} placeholder="A-96-50" /></label>
+              <label><span className="label">Item code</span><input className="field" required disabled={Boolean(selectedExistingBatch)} value={productionForm.itemCode} onChange={(event) => setProductionForm({ ...productionForm, itemCode: event.target.value })} placeholder="UG 200×50" /></label>
               <label><span className="label">Cart No.</span><input className="field" required value={productionForm.cartNumber} onChange={(event) => setProductionForm({ ...productionForm, cartNumber: event.target.value })} placeholder="CART-001" /></label>
               <label><span className="label">Blank quantity</span><input className="field" required type="number" min="1" max={selectedExistingBatch?.availableGoodBlankQuantity} value={productionForm.quantity} onChange={(event) => setProductionForm({ ...productionForm, quantity: event.target.value })} placeholder="100" /></label>
               <label><span className="label">Average blank weight (g)</span><input className="field" required type="number" min="0.001" step="0.001" value={productionForm.averageBlankWeightGrams} onChange={(event) => setProductionForm({ ...productionForm, averageBlankWeightGrams: event.target.value })} placeholder="100.000" /></label>
@@ -305,10 +309,10 @@ export function BlankingProductionPage() {
         </div>
         {productionRows.length === 0 ? <EmptyState title="No blanking production records" message="Create the first blanking batch to begin recording production." /> : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1850px] w-full border-separate border-spacing-0 text-left">
+            <table className="min-w-[2000px] w-full border-separate border-spacing-0 text-left">
               <thead>
                 <tr className="text-[10px] font-black uppercase tracking-[0.16em]">
-                  <th colSpan={3} className="border-b border-r border-slate-200 bg-slate-100 px-4 py-2.5 text-slate-600">Traceability</th>
+                  <th colSpan={4} className="border-b border-r border-slate-200 bg-slate-100 px-4 py-2.5 text-slate-600">Traceability</th>
                   <th colSpan={3} className="border-b border-r border-blue-200 bg-blue-50 px-4 py-2.5 text-blue-800">Blank weight calculation</th>
                   <th colSpan={2} className="border-b border-r border-violet-200 bg-violet-50 px-4 py-2.5 text-violet-800">Operators</th>
                   <th rowSpan={2} className={`${columnHeaderClass} w-48 border-l border-slate-200 bg-slate-50`}>Date / Shift / Time</th>
@@ -317,7 +321,8 @@ export function BlankingProductionPage() {
                 <tr>
                   <th className={`${columnHeaderClass} w-44 bg-slate-50`}>Cart No.</th>
                   <th className={`${columnHeaderClass} w-40 bg-slate-50`}>Compound Type</th>
-                  <th className={`${columnHeaderClass} w-40 border-r border-slate-200 bg-slate-50`}>Batch No.</th>
+                  <th className={`${columnHeaderClass} w-40 bg-slate-50`}>Batch No.</th>
+                  <th className={`${columnHeaderClass} w-40 border-r border-slate-200 bg-slate-50`}>Item Code</th>
                   <th className={`${columnHeaderClass} w-32 bg-blue-50/60 text-right`}>Blank Qty.</th>
                   <th className={`${columnHeaderClass} w-40 bg-blue-50/60 text-right`}>Average Weight (g)</th>
                   <th className={`${columnHeaderClass} w-40 border-r border-blue-200 bg-blue-50/60 text-right`}>Total Weight (kg)</th>
@@ -331,7 +336,8 @@ export function BlankingProductionPage() {
                     <tr className="bg-white transition-colors hover:bg-blue-50/40">
                       <td className={recordCellClass}><p className="text-base font-black text-ink">{cart?.cartNumber ?? 'Not prepared'}</p>{cart && <p className="mt-1 text-xs text-slate-500">By {cart.createdBy.fullName}</p>}</td>
                       <td className={recordCellClass}><p className="text-base font-black text-ink">{batch.materialCode}</p></td>
-                      <td className={`${recordCellClass} border-r border-slate-200`}><p className="text-base font-black text-ink">{batch.batchNumber}</p>{batch.mixingBatchNumber !== batch.batchNumber && <p className="mt-1 text-xs text-slate-500">Source {batch.mixingBatchNumber}</p>}</td>
+                      <td className={recordCellClass}><p className="text-base font-black text-ink">{batch.batchNumber}</p>{batch.mixingBatchNumber !== batch.batchNumber && <p className="mt-1 text-xs text-slate-500">Source {batch.mixingBatchNumber}</p>}</td>
+                      <td className={`${recordCellClass} border-r border-slate-200`}><p className="text-base font-black text-ink">{cart?.itemCode ?? batch.itemCode ?? 'Item TBC'}</p></td>
                       <td className={`${recordCellClass} bg-blue-50/20 text-right`}>
                         <p className="text-lg font-black text-ink">{cart?.quantity ?? '—'}</p>
                         <p className="mt-1 text-xs text-slate-500">{cart ? `${cart.remainingQuantity} remaining` : `${batch.availableGoodBlankQuantity} available`}</p>
@@ -344,7 +350,7 @@ export function BlankingProductionPage() {
                       <td className={`${recordCellClass} border-l border-slate-200`}><div className="space-y-2"><div><p className="mb-1 text-[10px] font-bold uppercase text-slate-400">{cart ? 'Cart' : 'Batch'}</p><StatusBadge status={cart?.status ?? batch.status} /></div>{cart && <div><p className="mb-1 text-[10px] font-bold uppercase text-slate-400">Batch</p><StatusBadge status={batch.status} /></div>}</div></td>
                     </tr>
                     <tr className="bg-slate-50/70">
-                      <td colSpan={10} className="border-b-4 border-slate-200 px-5 py-3">
+                      <td colSpan={11} className="border-b-4 border-slate-200 px-5 py-3">
                         <details>
                           <summary className="cursor-pointer select-none rounded-lg px-2 py-2 text-sm font-bold text-process hover:bg-blue-50">View operational details and controls</summary>
                           <div className="mt-4 grid gap-4 xl:grid-cols-3">

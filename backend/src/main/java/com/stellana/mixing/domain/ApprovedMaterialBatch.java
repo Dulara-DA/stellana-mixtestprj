@@ -85,7 +85,7 @@ public class ApprovedMaterialBatch extends BaseEntity {
     private UserAccount receivingOperator;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "varchar(32) default 'AVAILABLE'")
+    @Column(nullable = false, length = 32)
     @Builder.Default
     private CompoundStockStatus stockStatus = CompoundStockStatus.AVAILABLE;
 

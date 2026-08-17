@@ -176,7 +176,7 @@ public class BlankingService {
                 request.materialCode(),
                 null,
                 request.quantity(),
-                null,
+                request.itemCode(),
                 request.millOperator(),
                 request.preformerOperator(),
                 request.averageBlankWeightGrams(),

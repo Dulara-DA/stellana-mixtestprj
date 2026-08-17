@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -132,12 +134,12 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
                 admin, objectMapper.createObjectNode()
                         .put("goodTyreQuantity", 73)
                         .put("rejectedTyreQuantity", 5)
-                        .put("rejectedTyreWeightPerItemGrams", 100)
+                        .put("rejectedTyreWeightPerItemGrams", 0)
                         .put("rejectedBlankQuantity", 2)
                         .put("downtimeMinutes", 0)
                         .put("operatorNote", "Partial production with unused blanks."));
         assertThat(production.path("totalRejectedTyreWeightGrams").decimalValue())
-                .isEqualByComparingTo("500.000");
+                .isEqualByComparingTo("0.000");
         assertThat(production.path("remainingBlankQuantity").asInt()).isEqualTo(20);
 
         var legacyCart = blankingCartRepository.findById(cartId).orElseThrow();
@@ -280,13 +282,15 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
                         .put("returnType", "REJECTED_TYRES")
                         .put("productionRecordId", production.path("id").asLong())
                         .put("quantity", 5)
-                        .put("measuredReturnWeightKg", 0.5)
-                        .put("returnReason", "Rejected tyres from press production.")
-                        .put("mouldingNote", "Five rejected tyres recorded at 100 grams each."));
+                        .put("measuredReturnWeightKg", 0)
+                        .put("returnReason", "Rejected tyres returned by recorded quantity.")
+                        .put("mouldingNote", "Production entry had no saved weight; return is quantity-controlled."));
         assertThat(rejectedTyreReturn.path("returnType").asText()).isEqualTo("REJECTED_TYRES");
         assertThat(rejectedTyreReturn.path("preparedQuantity").asInt()).isEqualTo(5);
         assertThat(rejectedTyreReturn.path("measuredReturnWeightKg").decimalValue())
-                .isEqualByComparingTo("0.500");
+                .isEqualByComparingTo("0.000");
+        assertThat(rejectedTyreReturn.path("averageBlankWeightGrams").decimalValue())
+                .isEqualByComparingTo("0.000");
         long rejectedTyreReturnId = rejectedTyreReturn.path("id").asLong();
         postJson("/api/moulding/returns/" + rejectedTyreReturnId + "/send", admin,
                 objectMapper.createObjectNode());
@@ -294,7 +298,7 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
                 "/api/blanking/returns/" + rejectedTyreReturnId + "/confirm",
                 admin, objectMapper.createObjectNode()
                         .put("receivedQuantity", 5)
-                        .put("receivedWeightKg", 0.5)
+                        .put("receivedWeightKg", 0)
                         .put("username", "admin@stellana.local")
                         .put("employeeId", "SYS-001")
                         .put("password", "Admin123!"));
@@ -310,13 +314,26 @@ class ConfirmedDownstreamWorkflowMockMvcTest {
         assertThat(batchAfterRejectedTyreReceipt.path("availableGoodBlankQuantity").asInt())
                 .as("rejected tyres must not become usable blank stock")
                 .isEqualTo(419);
+        String encodedMixingBatch = URLEncoder.encode(
+                available.path("mixingBatchNumber").asText(), StandardCharsets.UTF_8);
+        JsonNode distribution = getJson(
+                "/api/blanking/compound-stock/distribution?mixingBatchNumber=" + encodedMixingBatch,
+                blankingOperator);
+        assertThat(distribution.path("compoundStock").path("id").asLong())
+                .isEqualTo(available.path("id").asLong());
+        assertThat(distribution.path("blankingBatches").isArray()).isTrue();
+        assertThat(distribution.path("carts").isArray()).isTrue();
+        assertThat(distribution.path("receipts").isArray()).isTrue();
+        assertThat(distribution.path("productionRecords").isArray()).isTrue();
+        assertThat(distribution.path("returns").isArray()).isTrue();
+        assertThat(distribution.path("inventoryTransactions").isArray()).isTrue();
         postExpectConflict("/api/moulding/returns", admin, objectMapper.createObjectNode()
                 .put("cartId", cartId)
                 .put("pressId", press.path("id").asLong())
                 .put("returnType", "REJECTED_TYRES")
                 .put("productionRecordId", production.path("id").asLong())
                 .put("quantity", 5)
-                .put("measuredReturnWeightKg", 0.5)
+                .put("measuredReturnWeightKg", 0)
                 .put("returnReason", "Duplicate rejected tyre return must be blocked."));
         JsonNode returnedCart = null;
         for (JsonNode candidate : getJson("/api/blanking/carts", admin)) {

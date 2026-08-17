@@ -36,7 +36,7 @@ export function RecipeDetailsPage() {
       />
       {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
-      <div className="mb-6 grid grid-cols-4 gap-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { icon: CalendarDays, label: 'Effective date', value: new Date(`${recipe.effectiveDate}T00:00:00`).toLocaleDateString('en-LK', { dateStyle: 'long' }) },
           { icon: UserRound, label: 'Created by', value: recipe.createdBy.fullName },
@@ -86,4 +86,3 @@ export function RecipeDetailsPage() {
     </div>
   )
 }
-
