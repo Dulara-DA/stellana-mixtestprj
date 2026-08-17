@@ -19,10 +19,11 @@ material genealogy, and audit history.
 - `backend/` — Spring Boot 3 REST API, JWT authentication, WebSocket/STOMP events, H2/PostgreSQL persistence, OpenAPI, QR generation, and tests.
 - `frontend/` — React, TypeScript, Vite, and Tailwind CSS responsive desktop/tablet application.
 - `docs/` — entity/relationship notes, database schema, and factory assumptions/questions.
-- `docker-compose.yml` — optional PostgreSQL 16 service.
+- `docker-compose.yml` — complete Nginx/React, Spring Boot, and private PostgreSQL 16 LAN stack.
 
-Architecture: the React browser client calls a stateless Spring REST API with a
-JWT bearer token. Spring Security enforces roles at controller/service
+Architecture: Nginx serves the React application and proxies same-origin
+`/api/` and `/ws` requests to Spring Boot. The React browser client calls a
+stateless Spring REST API with a JWT bearer token. Spring Security enforces roles at controller/service
 boundaries. JPA transactions persist workflow and inventory changes in H2 or
 PostgreSQL. Spring's STOMP broker publishes section events to `/topic/production`,
 `/topic/blanking`, `/topic/moulding`, and `/topic/shortages`; the client also
@@ -62,9 +63,10 @@ production data.
 - Maven 3.9+
 - Node.js 20+
 - npm 10+
-- Optional: Docker Desktop for PostgreSQL
+- Docker Desktop for the complete LAN deployment
 
-Docker is not required for the default setup. The backend uses a file-backed H2 development database when no profile is selected.
+Docker is not required for the two-terminal development setup. The backend uses
+a file-backed H2 development database when no profile is selected.
 
 On macOS, if more than one JDK is installed, select Java 21 before running Maven:
 
@@ -113,24 +115,55 @@ H2 console settings:
 - User: `sa`
 - Password: leave blank
 
-## Run with PostgreSQL
+## Run the complete Docker LAN stack with PostgreSQL
 
-Start PostgreSQL:
+Docker Compose builds the React application, serves it through Nginx on port
+80, proxies `/api/` and `/ws` to Spring Boot, and keeps PostgreSQL private on
+the internal Docker network. PostgreSQL port 5432 is not published to the Mac
+or LAN.
+
+From the repository root:
 
 ```bash
-docker compose up -d
+docker compose config
+docker compose up -d --build
+docker compose ps
 ```
 
-Start the backend using the PostgreSQL profile:
+Open the application locally at `http://localhost`. The database-aware backend
+health check is available through the same Nginx origin at
+`http://localhost/api/health`. Direct host access to backend port 8080 is not
+published by this Docker stack.
+
+View logs without exposing credentials:
 
 ```bash
-cd backend
-mvn spring-boot:run -Dspring-boot.run.profiles=postgres
+docker compose logs postgres
+docker compose logs backend
+docker compose logs frontend
 ```
 
-Then start the frontend as shown above.
+Restart the existing containers and retain all PostgreSQL data:
 
-PostgreSQL connection values can be overridden with `DB_URL`, `DB_USERNAME`, and `DB_PASSWORD`. Set `JWT_SECRET` to a strong secret outside development.
+```bash
+docker compose restart
+```
+
+Stop the system safely without deleting containers or database data:
+
+```bash
+docker compose stop
+```
+
+Start the stopped system again:
+
+```bash
+docker compose start
+```
+
+PostgreSQL connection values can be overridden with `DB_NAME`, `DB_USERNAME`,
+and `DB_PASSWORD`. Set `JWT_SECRET` to a strong secret outside development. Do
+not run `docker compose down -v`; the `-v` option deletes the database volume.
 
 ## Tests and production builds
 
@@ -289,22 +322,26 @@ July 28. The rule is isolated in `ShiftService` and covered by boundary tests.
 
 ## Test from a phone or industrial tablet
 
-Keep the backend and frontend terminals running on the laptop. Connect the
-laptop and tablet/phone to the same Wi-Fi, find the laptop IP, then expose Vite:
+For the Docker deployment, connect the Mac and phone/tablet to the same Wi-Fi,
+start the stack, and find the Mac's active Wi-Fi address:
 
 ```bash
-# macOS Wi-Fi address
 ipconfig getifaddr en0
-
-cd frontend
-npm run dev -- --host 0.0.0.0
+docker compose up -d --build
 ```
 
-If the laptop IP is `172.20.10.2`, open
-`http://172.20.10.2:5173` on the tablet. REST and WebSocket calls are relative
-and Vite proxies them to the backend, so the tablet must not use
-`localhost:8080`. macOS Firewall may ask for permission for Java and Node;
-allow incoming connections on the private network.
+If the Mac IP is `192.168.1.253`, open `http://192.168.1.253` on Android
+Chrome, iPhone Safari, a tablet, or another computer. REST and WebSocket calls
+remain on the same origin and are proxied by Nginx. Never enter `localhost` on
+the phone because that refers to the phone itself.
+
+For the two-terminal Vite development mode, port 5173 also listens on the LAN.
+Keep the local backend running and open `http://192.168.1.253:5173`. The Vite
+proxy forwards relative `/api` and `/ws` traffic to the local backend.
+
+If macOS asks whether Docker may accept incoming connections, allow Docker
+Desktop on the private network. Do not disable the firewall and do not add
+router port forwarding.
 
 For a factory installation, run PostgreSQL and the backend on the selected
 server/desktop, serve the built frontend through the approved internal web

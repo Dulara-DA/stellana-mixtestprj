@@ -2,20 +2,68 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: stellana-mixing-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: stellana_mixing
-      POSTGRES_USER: stellana
-      POSTGRES_PASSWORD: stellana_dev
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${DB_NAME:-stellana_mixing}
+      POSTGRES_USER: ${DB_USERNAME:-stellana}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-stellana_dev}
+    expose:
+      - "5432"
     volumes:
       - stellana_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U stellana -d stellana_mixing"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 12
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+    container_name: stellana-mixing-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      SERVER_ADDRESS: 0.0.0.0
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-stellana_mixing}
+      DB_USERNAME: ${DB_USERNAME:-stellana}
+      DB_PASSWORD: ${DB_PASSWORD:-stellana_dev}
+      JWT_SECRET: ${JWT_SECRET:-stellana-development-jwt-secret-change-this-before-production-2026}
+      DEMO_DATA_ENABLED: ${DEMO_DATA_ENABLED:-true}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      TRACEABILITY_BASE_URL: ${TRACEABILITY_BASE_URL:-http://localhost/trace}
+      CORS_ALLOWED_ORIGIN_PATTERNS: ${CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:[*],http://127.0.0.1:[*],http://*:[5173]}
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 35s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ""
+    container_name: stellana-mixing-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
 
 volumes:
   stellana_postgres_data:
-

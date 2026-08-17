@@ -499,6 +499,7 @@ public final class ApiModels {
     public record CreateBlankingProductionRecordRequest(
             @NotBlank String batchNumber,
             @NotBlank String materialCode,
+            @NotBlank @Size(max = 100) String itemCode,
             @NotBlank String millOperator,
             @NotBlank String preformerOperator,
             @NotBlank String cartNumber,

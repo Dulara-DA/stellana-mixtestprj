@@ -33,7 +33,7 @@ public class BlankReturn extends BaseEntity {
     private BlankingBatch blankingBatch;
 
     @Enumerated(EnumType.STRING)
-    @Column(columnDefinition = "varchar(40) default 'UNUSED_GOOD_BLANKS'")
+    @Column(length = 40)
     @Builder.Default
     private BlankReturnType returnType = BlankReturnType.UNUSED_GOOD_BLANKS;
 

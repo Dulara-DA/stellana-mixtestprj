@@ -61,19 +61,31 @@ public class BlankReturnService {
             throw new BusinessRuleException("The selected cart is not held at this press.");
         }
         MouldingProductionRecord productionRecord = resolveProductionRecord(request, returnType, cart, press);
-        BigDecimal averageWeight = returnType == BlankReturnType.REJECTED_TYRES
-                ? productionRecord.getRejectedTyreWeightPerItemGrams()
-                : cart.getAverageBlankWeightGrams() == null
-                        ? cart.getBlankingBatch().getAverageBlankWeightGrams()
-                        : cart.getAverageBlankWeightGrams();
-        if (averageWeight == null || averageWeight.signum() <= 0) {
-            if (request.measuredReturnWeightKg().signum() <= 0) {
-                throw new BusinessRuleException(
-                        "This historical cart has no per-item weight. Enter the actual total return weight in kg so it can be derived.");
+        BigDecimal measuredReturnWeight = request.measuredReturnWeightKg();
+        BigDecimal averageWeight;
+        if (returnType == BlankReturnType.REJECTED_TYRES) {
+            BigDecimal productionWeightGrams = productionRecord.getTotalRejectedTyreWeightGrams() == null
+                    ? BigDecimal.ZERO : productionRecord.getTotalRejectedTyreWeightGrams();
+            measuredReturnWeight = productionWeightGrams.signum() > 0
+                    ? productionWeightGrams.divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO.setScale(3);
+            averageWeight = productionRecord.getRejectedTyreWeightPerItemGrams();
+            if (averageWeight == null || averageWeight.signum() <= 0) {
+                averageWeight = BigDecimal.ZERO.setScale(3);
             }
-            averageWeight = request.measuredReturnWeightKg()
-                    .multiply(BigDecimal.valueOf(1000))
-                    .divide(BigDecimal.valueOf(request.quantity()), 3, RoundingMode.HALF_UP);
+        } else {
+            averageWeight = cart.getAverageBlankWeightGrams() == null
+                    ? cart.getBlankingBatch().getAverageBlankWeightGrams()
+                    : cart.getAverageBlankWeightGrams();
+            if (averageWeight == null || averageWeight.signum() <= 0) {
+                if (measuredReturnWeight.signum() <= 0) {
+                    throw new BusinessRuleException(
+                            "This historical cart has no per-item weight. Enter the actual total return weight in kg so it can be derived.");
+                }
+                averageWeight = measuredReturnWeight
+                        .multiply(BigDecimal.valueOf(1000))
+                        .divide(BigDecimal.valueOf(request.quantity()), 3, RoundingMode.HALF_UP);
+            }
         }
 
         if (returnType == BlankReturnType.UNUSED_GOOD_BLANKS) {
@@ -103,7 +115,7 @@ public class BlankReturnService {
                         ? cart.getBlankingBatch().getMixingBatchNumber() : cart.getMixingBatchNumber())
                 .itemCode(cart.getItemCode())
                 .preparedQuantity(request.quantity())
-                .measuredReturnWeightKg(request.measuredReturnWeightKg())
+                .measuredReturnWeightKg(measuredReturnWeight)
                 .averageBlankWeightGrams(averageWeight)
                 .returnReason(request.returnReason().trim())
                 .sendingOperator(actor)
@@ -191,8 +203,12 @@ public class BlankReturnService {
         if (resolvingDispute && !supervisor) {
             throw new BusinessRuleException("A Blanking Supervisor, Manager, or System Administrator must resolve this return variance.");
         }
+        BlankReturnType returnType = value.getReturnType() == null
+                ? BlankReturnType.UNUSED_GOOD_BLANKS : value.getReturnType();
+        BigDecimal receivedWeight = returnType == BlankReturnType.REJECTED_TYRES
+                ? value.getMeasuredReturnWeightKg() : request.receivedWeightKg();
         int quantityVariance = request.receivedQuantity() - value.getPreparedQuantity();
-        BigDecimal weightVariance = request.receivedWeightKg().subtract(value.getMeasuredReturnWeightKg())
+        BigDecimal weightVariance = receivedWeight.subtract(value.getMeasuredReturnWeightKg())
                 .setScale(3, RoundingMode.HALF_UP);
         boolean disputed = quantityVariance != 0 || weightVariance.abs().compareTo(new BigDecimal("0.001")) > 0;
         if (disputed && !StringUtils.hasText(request.varianceNote())) {
@@ -203,7 +219,7 @@ public class BlankReturnService {
             value.setReceivingOperatorEmployeeId(receivingEmployeeId);
             value.setReceivingDateTime(shiftService.now());
             value.setReceivedQuantity(request.receivedQuantity());
-            value.setReceivedWeightKg(request.receivedWeightKg());
+            value.setReceivedWeightKg(receivedWeight);
             value.setQuantityVariance(quantityVariance);
             value.setWeightVarianceKg(weightVariance);
             value.setVarianceNote(request.varianceNote().trim());
@@ -211,15 +227,13 @@ public class BlankReturnService {
             BlankReturn reported = returnRepository.save(value);
             auditService.record(actor, "REPORT_BLANK_RETURN_VARIANCE", "BlankReturn", reported.getId(),
                     "Sent " + reported.getPreparedQuantity() + " / " + reported.getMeasuredReturnWeightKg() + " kg",
-                    "Counted " + request.receivedQuantity() + " / " + request.receivedWeightKg()
+                    "Counted " + request.receivedQuantity() + " / " + receivedWeight
                             + " kg / " + request.varianceNote().trim(),
                     null, null);
             publish("BLANK_RETURN_VARIANCE", reported);
             return blankReturn(reported);
         }
 
-        BlankReturnType returnType = value.getReturnType() == null
-                ? BlankReturnType.UNUSED_GOOD_BLANKS : value.getReturnType();
         BlankingBatch batch = value.getBlankingBatch();
         if (returnType == BlankReturnType.UNUSED_GOOD_BLANKS) {
             batch = batchRepository.findByIdForUpdate(value.getBlankingBatch().getId())
@@ -246,7 +260,7 @@ public class BlankReturnService {
             value.setReceivingOperatorEmployeeId(value.getReceivingOperator().getEmployeeId());
         }
         value.setReceivedQuantity(request.receivedQuantity());
-        value.setReceivedWeightKg(request.receivedWeightKg());
+        value.setReceivedWeightKg(receivedWeight);
         value.setQuantityVariance(quantityVariance);
         value.setWeightVarianceKg(weightVariance);
         value.setVarianceNote(trimToNull(request.varianceNote()));
@@ -262,7 +276,7 @@ public class BlankReturnService {
                 batch.getId(),
                 BigDecimal.valueOf(request.receivedQuantity()),
                 returnType == BlankReturnType.REJECTED_TYRES ? "tyres" : "pieces",
-                request.receivedWeightKg(),
+                receivedWeight,
                 actor,
                 saved.getReturnNumber() + " / " + returnType
                         + (returnType != BlankReturnType.UNUSED_GOOD_BLANKS
@@ -270,7 +284,7 @@ public class BlankReturnService {
                         + (disputed ? " / supervisor accepted variance" : " / balanced"));
         auditService.record(actor, "CONFIRM_BLANK_RETURN", "BlankReturn", saved.getId(),
                 "Sent " + saved.getPreparedQuantity() + " / " + saved.getMeasuredReturnWeightKg() + " kg",
-                "Received " + request.receivedQuantity() + " / " + request.receivedWeightKg()
+                "Received " + request.receivedQuantity() + " / " + receivedWeight
                         + " kg / cart " + saved.getCart().getCartNumber()
                         + " / " + returnType
                         + " / received by " + saved.getReceivingOperator().getFullName()
@@ -333,12 +347,6 @@ public class BlankReturnService {
             }
             if (!request.quantity().equals(record.getRejectedTyreQuantity())) {
                 throw new BusinessRuleException("The rejected return quantity must match the rejected tyres recorded in the Press Production Entry.");
-            }
-            BigDecimal recordedWeightKg = record.getTotalRejectedTyreWeightGrams()
-                    .divide(BigDecimal.valueOf(1000), 3, RoundingMode.HALF_UP);
-            if (request.measuredReturnWeightKg().subtract(recordedWeightKg).abs()
-                    .compareTo(new BigDecimal("0.001")) > 0) {
-                throw new BusinessRuleException("The rejected tyre return weight must match the weight recorded in the Press Production Entry.");
             }
             if (returnRepository.existsByProductionRecordIdAndReturnType(
                     record.getId(), BlankReturnType.REJECTED_TYRES)) {

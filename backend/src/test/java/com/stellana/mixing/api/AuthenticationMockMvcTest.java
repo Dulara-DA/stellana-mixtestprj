@@ -73,6 +73,15 @@ class AuthenticationMockMvcTest {
     }
 
     @Test
+    void healthEndpointIsPublicAndChecksTheDatabase() throws Exception {
+        mockMvc.perform(get("/api/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.database").value("UP"))
+                .andExpect(jsonPath("$.timestamp").isNotEmpty());
+    }
+
+    @Test
     void protectedEndpointRejectsInvalidTokenAsExpiredSession() throws Exception {
         mockMvc.perform(get("/api/batches")
                         .header("Authorization", "Bearer invalid-token"))
