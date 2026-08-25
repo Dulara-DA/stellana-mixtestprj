@@ -86,7 +86,7 @@ export function CompoundDistributionDetails({ genealogy, refreshing, onRefresh }
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-base font-black text-ink">Quantity distribution for {stock.materialCode} · Batch {stock.mixingBatchNumber}</p>
-          <p className="mt-1 text-xs text-slate-600">Follow the received compound from stock through Blanking carts, Moulding production, and returns. Cart weights are based on the recorded average blank weight.</p>
+          <p className="mt-1 text-xs text-slate-600">The remaining stock is reduced when compound is issued to Blanking. That allocated quantity is then traced through Blanking carts, Moulding production, and returns without being deducted twice.</p>
         </div>
         <button type="button" className="btn-secondary" onClick={onRefresh} disabled={refreshing} aria-label={`Refresh distribution for batch ${stock.mixingBatchNumber}`}>
           <RefreshCw className={refreshing ? 'animate-spin' : ''} size={16} /> {refreshing ? 'Refreshing…' : 'Refresh trace'}
@@ -95,8 +95,8 @@ export function CompoundDistributionDetails({ genealogy, refreshing, onRefresh }
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-3"><p className="text-[11px] font-black uppercase text-blue-700">Original received</p><p className="mt-1 text-xl font-black text-ink">{kg(stock.receivedQuantityKg)}</p></div>
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><p className="text-[11px] font-black uppercase text-emerald-700">Available compound</p><p className="mt-1 text-xl font-black text-emerald-800">{kg(stock.availableQuantityKg)}</p></div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-[11px] font-black uppercase text-amber-700">Reserved in Blanking</p><p className="mt-1 text-xl font-black text-amber-800">{kg(stock.reservedQuantityKg)}</p></div>
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3"><p className="text-[11px] font-black uppercase text-emerald-700">Remaining compound stock</p><p className="mt-1 text-xl font-black text-emerald-800">{kg(stock.availableQuantityKg)}</p><p className="text-[11px] text-emerald-700">Current usable balance</p></div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-[11px] font-black uppercase text-amber-700">Allocated to Blanking</p><p className="mt-1 text-xl font-black text-amber-800">{kg(stock.reservedQuantityKg)}</p><p className="text-[11px] text-amber-700">Issued but not completed</p></div>
         <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-[11px] font-black uppercase text-slate-500">Processed in Blanking</p><p className="mt-1 text-xl font-black text-slate-800">{kg(stock.consumedQuantityKg)}</p><p className="text-[11px] text-slate-500">{kg(stock.returnedQuantityKg)} returned historically</p></div>
         <div className={`rounded-xl border p-3 ${Math.abs(reconciliation) <= 0.001 ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50'}`}><p className="text-[11px] font-black uppercase text-slate-500">Stock reconciliation</p><p className={`mt-1 text-xl font-black ${Math.abs(reconciliation) <= 0.001 ? 'text-emerald-800' : 'text-red-700'}`}>{kg(reconciliation)}</p><p className="text-[11px] text-slate-500">Received − available − reserved − processed</p></div>
       </div>

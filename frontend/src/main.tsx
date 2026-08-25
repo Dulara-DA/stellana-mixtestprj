@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
+import { HorizontalScrollEnhancer } from './components/HorizontalScrollEnhancer'
 import App from './App'
 import './index.css'
 
@@ -11,6 +12,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <AppErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
+          <HorizontalScrollEnhancer />
           <App />
         </AuthProvider>
       </BrowserRouter>

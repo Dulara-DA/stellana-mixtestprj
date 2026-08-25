@@ -100,3 +100,47 @@ textarea:focus-visible {
     @apply border-b border-slate-100 px-4 py-3.5 text-sm text-slate-700;
   }
 }
+
+/* Wide production tables remain touch-scrollable and also work with a desktop mouse/keyboard. */
+.desktop-horizontal-scroll {
+  overscroll-behavior-inline: contain;
+  scrollbar-color: #64748b #e2e8f0;
+  scrollbar-width: auto;
+  scroll-behavior: smooth;
+}
+
+.desktop-horizontal-scroll::-webkit-scrollbar {
+  height: 13px;
+}
+
+.desktop-horizontal-scroll::-webkit-scrollbar-track {
+  border-top: 1px solid #cbd5e1;
+  background: #e2e8f0;
+}
+
+.desktop-horizontal-scroll::-webkit-scrollbar-thumb {
+  min-width: 72px;
+  border: 3px solid #e2e8f0;
+  border-radius: 999px;
+  background: #64748b;
+}
+
+.desktop-horizontal-scroll::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+.desktop-horizontal-scroll:focus-visible {
+  outline: 3px solid rgba(38, 133, 255, 0.35);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .desktop-horizontal-scroll {
+    cursor: grab;
+  }
+
+  .desktop-horizontal-scroll.is-horizontal-dragging {
+    cursor: grabbing;
+    scroll-behavior: auto;
+  }
+}
