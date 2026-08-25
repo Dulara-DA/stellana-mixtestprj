@@ -27,9 +27,11 @@ interface CompoundStockGroup {
   reserved: number
   consumed: number
   returned: number
+  latestActivityAt?: string
 }
 
 const stockAmount = (value: number) => `${Number(value).toFixed(3)} kg`
+const stockActivityAt = (value: ApprovedMaterialBatch) => value.receivedAt ?? value.approvedAt ?? value.lastUpdatedAt
 
 export function CompoundStockPage() {
   const { user } = useAuth()
@@ -46,6 +48,7 @@ export function CompoundStockPage() {
   const [returnConfirm, setReturnConfirm] = useState(emptyReturnConfirm)
   const [compoundSearch, setCompoundSearch] = useState('')
   const [compoundPage, setCompoundPage] = useState(1)
+  const [expandedCompoundKeys, setExpandedCompoundKeys] = useState<string[]>([])
   const [expandedStockIds, setExpandedStockIds] = useState<number[]>([])
   const [distributionByStockId, setDistributionByStockId] = useState<Record<number, ProductionGenealogy>>({})
   const [loadingStockIds, setLoadingStockIds] = useState<number[]>([])
@@ -107,6 +110,7 @@ export function CompoundStockPage() {
         reserved: 0,
         consumed: 0,
         returned: 0,
+        latestActivityAt: undefined,
       }
       current.batches.push(item)
       current.received += Number(item.receivedQuantityKg)
@@ -114,15 +118,25 @@ export function CompoundStockPage() {
       current.reserved += Number(item.reservedQuantityKg)
       current.consumed += Number(item.consumedQuantityKg)
       current.returned += Number(item.returnedQuantityKg)
+      const activityAt = stockActivityAt(item)
+      if (activityAt && (!current.latestActivityAt || activityAt > current.latestActivityAt)) {
+        current.latestActivityAt = activityAt
+      }
       groups.set(key, current)
     })
     const query = compoundSearch.trim().toLocaleLowerCase()
     return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        batches: [...group.batches].sort((left, right) =>
+          (stockActivityAt(right) ?? '').localeCompare(stockActivityAt(left) ?? '')),
+      }))
       .filter((group) => !query
         || group.materialCode.toLocaleLowerCase().includes(query)
         || group.compoundName.toLocaleLowerCase().includes(query)
         || group.batches.some((batch) => batch.mixingBatchNumber.toLocaleLowerCase().includes(query)))
-      .sort((left, right) => left.materialCode.localeCompare(right.materialCode, undefined, { numeric: true }))
+      .sort((left, right) => (right.latestActivityAt ?? '').localeCompare(left.latestActivityAt ?? '')
+        || left.materialCode.localeCompare(right.materialCode, undefined, { numeric: true }))
   }, [compoundSearch, stock])
   const compoundPageCount = Math.max(1, Math.ceil(compoundGroups.length / COMPOUNDS_PER_PAGE))
   const visibleCompoundGroups = compoundGroups.slice(
@@ -182,6 +196,11 @@ export function CompoundStockPage() {
     expandedBatchNumbersRef.current.set(item.id, item.mixingBatchNumber)
     setExpandedStockIds((values) => [...values, item.id])
     if (!distributionByStockId[item.id]) void refreshDistribution(item)
+  }
+  const toggleCompound = (key: string) => {
+    setExpandedCompoundKeys((values) => values.includes(key)
+      ? values.filter((value) => value !== key)
+      : [...values, key])
   }
   const changeStatus = async (item: ApprovedMaterialBatch, status: 'AVAILABLE' | 'ON_HOLD' | 'REJECTED') => {
     if (status === item.stockStatus || (status === 'AVAILABLE' && item.stockStatus === 'PARTIALLY_USED')) return
@@ -284,7 +303,7 @@ export function CompoundStockPage() {
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 bg-blue-50/60 px-5 py-4 sm:px-6">
           <div>
             <h2 id="compound-wise-stock-title" className="text-lg font-black text-ink">Compound-wise stock table</h2>
-            <p className="mt-1 text-xs text-slate-500">One row per compound batch. Select its quantity to see where every recorded portion moved, with operators and timestamps.</p>
+            <p className="mt-1 text-xs text-slate-500">Open a compound to see its dated Mixing batches. Each Quantity value is the live remaining balance; select it for the complete distribution.</p>
           </div>
           <label className="w-full max-w-sm">
             <span className="label">Find compound or batch</span>
@@ -308,34 +327,68 @@ export function CompoundStockPage() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="production-table min-w-[1450px]">
-                <thead><tr><th>Compound</th><th>Batch Number</th><th>Quantity</th><th>Current distribution</th><th>Lab approval</th><th>Received by / time</th><th>Status</th>{canControl && <th>Stock status update</th>}{canUpdateReceipt && <th>Quantity update</th>}</tr></thead>
-                <tbody>{visibleCompoundGroups.flatMap((group) => group.batches.flatMap((item) => {
-                  const expanded = expandedStockIds.includes(item.id)
-                  const refreshing = loadingStockIds.includes(item.id)
-                  const distribution = distributionByStockId[item.id]
+              <table className="production-table min-w-[1550px]">
+                <thead><tr><th>Compound</th><th>Batch Number</th><th>Remaining Quantity</th><th>Distribution</th><th>Batch date / time</th><th>Lab approval</th><th>Status</th>{canControl && <th>Stock status update</th>}{canUpdateReceipt && <th>Quantity update</th>}</tr></thead>
+                <tbody>{visibleCompoundGroups.flatMap((group) => {
+                  const compoundExpanded = expandedCompoundKeys.includes(group.key)
                   const columnCount = 7 + (canControl ? 1 : 0) + (canUpdateReceipt ? 1 : 0)
-                  return [
-                    <tr key={item.id} className="bg-white">
-                      <td><p className="font-black text-ink">{group.materialCode}</p><p className="text-xs text-slate-500">{group.compoundName}</p><p className="mt-1 text-[11px] text-blue-700">{group.batches.length} batch{group.batches.length === 1 ? '' : 'es'} · {stockAmount(group.received)} total</p></td>
-                      <td><p className="font-black">{item.mixingBatchNumber}</p><p className="text-xs text-slate-500">Stock record #{item.id}</p></td>
+                  const rows = [
+                    <tr key={`compound-${group.key}`} className="border-t-2 border-blue-200 bg-blue-50/70">
                       <td>
-                        <button type="button" className="group flex min-w-44 items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-left transition hover:border-blue-400 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500" onClick={() => toggleDistribution(item)} aria-expanded={expanded} aria-controls={`compound-distribution-${item.id}`}>
-                          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white text-process shadow-sm">{expanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}</span>
-                          <span><span className="block text-base font-black text-process">{stockAmount(item.receivedQuantityKg)}</span><span className="block text-[11px] font-bold text-blue-700">{expanded ? 'Hide distribution' : 'View distribution'}</span></span>
+                        <button type="button" className="flex min-w-56 items-center gap-3 text-left" onClick={() => toggleCompound(group.key)} aria-expanded={compoundExpanded}>
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-process shadow-sm">{compoundExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</span>
+                          <span><span className="block text-base font-black text-ink">{group.materialCode}</span><span className="block text-xs text-slate-600">{group.compoundName}</span></span>
                         </button>
-                        <p className="mt-1 text-[11px] text-slate-500">Planned {stockAmount(item.plannedQuantityKg)}</p>
                       </td>
-                      <td><p className="font-black text-emerald-700">{stockAmount(item.availableQuantityKg)} available</p><p className="text-xs text-amber-700">{stockAmount(item.reservedQuantityKg)} reserved</p><p className="text-xs text-slate-500">{stockAmount(item.consumedQuantityKg)} processed · {stockAmount(item.returnedQuantityKg)} returned</p></td>
-                      <td>{item.temporaryLabBypass ? <StatusBadge status="TEMPORARY_LAB_BYPASS" /> : <StatusBadge status={item.labStatus} />}{item.temporaryLabBypass ? <p className="mt-1 max-w-64 text-xs text-amber-800">Authorized by {item.temporaryLabBypassApprovedBy?.fullName ?? 'management'} · {formatDateTime(item.temporaryLabBypassApprovedAt)}</p> : <p className="mt-1 text-xs text-slate-500">Ref #{item.labApprovalId ?? 'TBC'}</p>}</td>
-                      <td>{item.stockStatus === 'AWAITING_RECEIPT' ? 'Awaiting receipt' : item.receivingOperator?.fullName ?? 'System release'}<p className="text-xs text-slate-500">EPF {item.receivingOperator?.employeeId ?? 'TBC'}</p><p className="text-xs text-slate-500">{formatDateTime(item.receivedAt)}</p></td>
-                      <td><StatusBadge status={item.stockStatus} /></td>
-                      {canControl && <td><select className="field min-w-36" value={item.stockStatus === 'PARTIALLY_USED' ? 'AVAILABLE' : item.stockStatus} onChange={(event) => void changeStatus(item, event.target.value as 'AVAILABLE' | 'ON_HOLD' | 'REJECTED')}><option value="AVAILABLE">Available</option><option value="ON_HOLD">On hold</option><option value="REJECTED">Rejected</option>{item.stockStatus === 'DEPLETED' && <option value="DEPLETED" disabled>Depleted</option>}{item.stockStatus === 'AWAITING_RECEIPT' && <option value="AWAITING_RECEIPT" disabled>Awaiting receipt</option>}</select></td>}
-                      {canUpdateReceipt && <td><button type="button" className="btn-secondary whitespace-nowrap" onClick={() => openReceiptUpdate(item)}><PackageCheck size={16} /> {item.stockStatus === 'AWAITING_RECEIPT' ? 'Receive compound' : 'Update quantity'}</button></td>}
+                      <td>
+                        <button type="button" className="text-left" onClick={() => toggleCompound(group.key)}>
+                          <span className="block font-black text-process">{group.batches.length} batch{group.batches.length === 1 ? '' : 'es'}</span>
+                          <span className="block text-[11px] font-bold text-blue-700">{compoundExpanded ? 'Hide batch records' : 'Show dated batch records'}</span>
+                        </button>
+                      </td>
+                      <td>
+                        <button type="button" className="min-w-44 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-left shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50" onClick={() => toggleCompound(group.key)}>
+                          <span className="block text-lg font-black text-emerald-700">{stockAmount(group.available)}</span>
+                          <span className="block text-[11px] text-slate-500">Remaining from {stockAmount(group.received)} received</span>
+                        </button>
+                      </td>
+                      <td><p className="font-bold text-amber-700">{stockAmount(group.reserved)} currently allocated</p><p className="text-xs text-slate-600">{stockAmount(group.consumed)} processed · {stockAmount(group.returned)} returned</p></td>
+                      <td><p className="font-bold">Latest stock activity</p><p className="text-xs text-slate-600">{formatDateTime(group.latestActivityAt)}</p></td>
+                      <td colSpan={2 + (canControl ? 1 : 0) + (canUpdateReceipt ? 1 : 0)}><p className="text-sm font-bold text-blue-800">{compoundExpanded ? 'Select a batch’s remaining quantity to open its full distribution.' : 'Open this compound to view batch numbers, dates, balances, and traceability.'}</p></td>
                     </tr>,
-                    expanded && <tr key={`${item.id}-distribution`} id={`compound-distribution-${item.id}`}><td colSpan={columnCount} className="p-0">{distribution ? <CompoundDistributionDetails genealogy={distribution} refreshing={refreshing} onRefresh={() => void refreshDistribution(item)} /> : <div className="flex items-center gap-3 border-y border-blue-100 bg-blue-50/60 px-6 py-7 text-sm font-bold text-blue-800"><span className="h-5 w-5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" /> Loading the full quantity distribution…</div>}</td></tr>,
                   ]
-                }))}</tbody>
+                  if (!compoundExpanded) return rows
+                  group.batches.forEach((item, index) => {
+                    const expanded = expandedStockIds.includes(item.id)
+                    const refreshing = loadingStockIds.includes(item.id)
+                    const distribution = distributionByStockId[item.id]
+                    rows.push(
+                      <tr key={item.id} className="bg-white">
+                        <td><p className="pl-12 text-xs font-black uppercase tracking-wide text-slate-400">Batch {index + 1} of {group.batches.length}</p><p className="pl-12 text-xs text-slate-500">Stock record #{item.id}</p></td>
+                        <td><p className="font-black text-ink">{item.mixingBatchNumber}</p><p className="text-xs text-slate-500">{item.materialCode} · {item.compoundName}</p></td>
+                        <td>
+                          <button type="button" className="group flex min-w-48 items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-left transition hover:border-emerald-400 hover:bg-emerald-100 focus:outline-none focus:ring-2 focus:ring-emerald-500" onClick={() => toggleDistribution(item)} aria-expanded={expanded} aria-controls={`compound-distribution-${item.id}`} aria-label={`${expanded ? 'Hide' : 'View'} distribution for batch ${item.mixingBatchNumber}, ${stockAmount(item.availableQuantityKg)} remaining`}>
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white text-emerald-700 shadow-sm">{expanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}</span>
+                            <span><span className="block text-base font-black text-emerald-700">{stockAmount(item.availableQuantityKg)}</span><span className="block text-[11px] font-bold text-emerald-800">{expanded ? 'Hide distribution' : 'Remaining · view distribution'}</span></span>
+                          </button>
+                          <p className="mt-1 text-[11px] text-slate-500">Original received {stockAmount(item.receivedQuantityKg)}</p>
+                        </td>
+                        <td><p className="font-black text-amber-700">{stockAmount(item.reservedQuantityKg)} allocated to Blanking</p><p className="text-xs text-slate-600">{stockAmount(item.consumedQuantityKg)} processed</p><p className="text-xs text-slate-500">{stockAmount(item.returnedQuantityKg)} returned historically</p></td>
+                        <td><p className="font-bold">Received {formatDateTime(item.receivedAt)}</p><p className="text-xs text-slate-500">Lab approved {formatDateTime(item.approvedAt)}</p><p className="text-xs text-slate-500">Updated {formatDateTime(item.lastUpdatedAt)}</p><p className="mt-1 text-xs">{item.stockStatus === 'AWAITING_RECEIPT' ? 'Awaiting receipt' : item.receivingOperator?.fullName ?? 'System release'} · EPF {item.receivingOperator?.employeeId ?? 'TBC'}</p></td>
+                        <td>{item.temporaryLabBypass ? <StatusBadge status="TEMPORARY_LAB_BYPASS" /> : <StatusBadge status={item.labStatus} />}{item.temporaryLabBypass ? <p className="mt-1 max-w-64 text-xs text-amber-800">Authorized by {item.temporaryLabBypassApprovedBy?.fullName ?? 'management'} · {formatDateTime(item.temporaryLabBypassApprovedAt)}</p> : <p className="mt-1 text-xs text-slate-500">Ref #{item.labApprovalId ?? 'TBC'}</p>}</td>
+                        <td><StatusBadge status={item.stockStatus} /></td>
+                        {canControl && <td><select className="field min-w-36" value={item.stockStatus === 'PARTIALLY_USED' ? 'AVAILABLE' : item.stockStatus} onChange={(event) => void changeStatus(item, event.target.value as 'AVAILABLE' | 'ON_HOLD' | 'REJECTED')}><option value="AVAILABLE">Available</option><option value="ON_HOLD">On hold</option><option value="REJECTED">Rejected</option>{item.stockStatus === 'DEPLETED' && <option value="DEPLETED" disabled>Depleted</option>}{item.stockStatus === 'AWAITING_RECEIPT' && <option value="AWAITING_RECEIPT" disabled>Awaiting receipt</option>}</select></td>}
+                        {canUpdateReceipt && <td><button type="button" className="btn-secondary whitespace-nowrap" onClick={() => openReceiptUpdate(item)}><PackageCheck size={16} /> {item.stockStatus === 'AWAITING_RECEIPT' ? 'Receive compound' : 'Update quantity'}</button></td>}
+                      </tr>,
+                    )
+                    if (expanded) {
+                      rows.push(
+                        <tr key={`${item.id}-distribution`} id={`compound-distribution-${item.id}`}><td colSpan={columnCount} className="p-0">{distribution ? <CompoundDistributionDetails genealogy={distribution} refreshing={refreshing} onRefresh={() => void refreshDistribution(item)} /> : <div className="flex items-center gap-3 border-y border-blue-100 bg-blue-50/60 px-6 py-7 text-sm font-bold text-blue-800"><span className="h-5 w-5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" /> Loading the full quantity distribution…</div>}</td></tr>,
+                      )
+                    }
+                  })
+                  return rows
+                })}</tbody>
               </table>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-4 text-sm sm:px-6">
